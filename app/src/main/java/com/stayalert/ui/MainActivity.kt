@@ -42,6 +42,10 @@ import com.stayalert.domain.SessionValidator
 import com.stayalert.domain.SystemClock
 import com.stayalert.domain.TerminationReason
 import com.stayalert.domain.ValidationFailure
+import com.stayalert.system.IntentLauncher
+import com.stayalert.system.SessionCommandHandler
+import com.stayalert.system.SystemOverlayController
+import com.stayalert.system.UsageStatsForegroundMonitor
 import com.stayalert.ui.components.ResponsibleUseNotice
 import com.stayalert.ui.settings.SettingsScreen
 import com.stayalert.ui.settings.SettingsViewModel
@@ -71,6 +75,8 @@ class MainActivity : ComponentActivity() {
         SystemBatteryOptimizationChecker(applicationContext)
     }
 
+    private lateinit var sessionCommandHandler: SessionCommandHandler
+
     private val sessionController by lazy {
         SessionController(
             scope = lifecycleScope,
@@ -79,13 +85,36 @@ class MainActivity : ComponentActivity() {
                 settingsRepository,
                 appInstalledChecker
             ),
-            onCommand = { /* no-op: componentes SO en stories 2.2-2.5 */ }
+            onCommand = { command ->
+                sessionCommandHandler.handle(command)
+            }
         )
+    }
+
+    private val overlayController by lazy {
+        SystemOverlayController(
+            context = applicationContext,
+            scope = lifecycleScope,
+            clock = SystemClock(),
+            onEvent = { event -> sessionController.emit(event) }
+        )
+    }
+
+    private val commandHandler by lazy {
+        SessionCommandHandler(
+            scope = lifecycleScope,
+            settingsRepository = settingsRepository,
+            targetAppLauncher = IntentLauncher(applicationContext),
+            foregroundMonitor = UsageStatsForegroundMonitor(applicationContext),
+            overlayController = overlayController,
+            onEvent = { event -> sessionController.emit(event) }
+        ).also { sessionCommandHandler = it }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        commandHandler
         setContent {
             StayAlertTheme {
                 val mainViewModel: MainViewModel = viewModel(

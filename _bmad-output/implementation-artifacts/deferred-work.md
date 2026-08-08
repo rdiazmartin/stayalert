@@ -25,3 +25,8 @@
 
 - `SystemClock` acopla `domain/` a Android [`app/src/main/java/com/stayalert/domain/SystemClock.kt:5`] — deferred; mover `SystemClock` a `system/` (capa de integración) en refactor.
 - `BatteryWarning` no emite aviso de notificación [`app/src/main/java/com/stayalert/domain/SessionController.kt:157-159`] — deferred; requiere `Notifier` (story 2.4) para publicar el aviso al 15% (FR-16).
+
+## Deferred from: code review of 2-2-despliegue-secuencial-y-overlay-de-aislamiento.md (2026-08-09)
+
+- `SessionCommandHandler` no usa `clock` (parámetro muerto) [`app/src/main/java/com/stayalert/system/SessionCommandHandler.kt:176`] — deferred; se resuelve con el fix del delay vía clock o se elimina en refactor.
+- `MainActivity` con `lateinit` + lazy circular [`app/src/main/java/com/stayalert/ui/MainActivity.kt:78-110`] — deferred; considerar `AppContainer`/`ServiceLocator` simple cuando crezca el wiring (stories 2.4/2.5).
