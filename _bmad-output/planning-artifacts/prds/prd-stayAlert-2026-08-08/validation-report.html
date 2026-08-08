@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>PRD Validation: stayAlert</title>
+<style>
+  :root {
+    --bg: #fafaf9;
+    --surface: #ffffff;
+    --border: #e7e5e4;
+    --text: #1c1917;
+    --muted: #78716c;
+
+    --verdict-strong: #16a34a;
+    --verdict-adequate: #65a30d;
+    --verdict-thin: #d97706;
+    --verdict-broken: #dc2626;
+
+    --sev-low: #64748b;
+    --sev-medium: #ca8a04;
+    --sev-high: #ea580c;
+    --sev-critical: #dc2626;
+
+    --grade-exc: #16a34a;
+    --grade-good: #65a30d;
+    --grade-fair: #d97706;
+    --grade-poor: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    font-size: 15px;
+  }
+  .container { max-width: 960px; margin: 0 auto; padding: 32px 24px 64px; }
+
+  header.report-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+  }
+  .title h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+  .title .subtitle { color: var(--muted); font-size: 13px; margin-top: 4px; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .grade {
+    padding: 10px 18px;
+    border-radius: 8px;
+    font-weight: 600;
+    color: white;
+    font-size: 15px;
+    white-space: nowrap;
+  }
+  .grade-excellent { background: var(--grade-exc); }
+  .grade-good { background: var(--grade-good); }
+  .grade-fair { background: var(--grade-fair); }
+  .grade-poor { background: var(--grade-poor); }
+
+  .synthesis {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--muted);
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin-bottom: 24px;
+    font-size: 15.5px;
+  }
+  .synthesis p { margin: 0 0 10px; }
+  .synthesis p:last-child { margin-bottom: 0; }
+
+  .dimension-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+    margin-bottom: 24px;
+  }
+  .dim-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .dim-card .dim-name { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  .dim-card .dim-verdict { font-size: 14px; font-weight: 600; }
+
+  section.dimension, section.reviewer-section { margin-bottom: 14px; }
+  section.dimension details, section.reviewer-section details {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  section summary {
+    padding: 14px 20px;
+    cursor: pointer;
+    user-select: none;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  section summary::-webkit-details-marker { display: none; }
+  section summary::before {
+    content: "▸";
+    display: inline-block;
+    color: var(--muted);
+    transition: transform 0.15s ease;
+  }
+  section details[open] summary::before { transform: rotate(90deg); }
+  section summary h2 {
+    display: inline;
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    flex: 1;
+  }
+  .verdict-pill {
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: white;
+  }
+  .verdict-strong { background: var(--verdict-strong); }
+  .verdict-adequate { background: var(--verdict-adequate); }
+  .verdict-thin { background: var(--verdict-thin); }
+  .verdict-broken { background: var(--verdict-broken); }
+
+  .dim-body { padding: 4px 20px 18px; }
+  .dim-judgment { color: var(--text); font-size: 14.5px; }
+  .dim-judgment p { margin: 0 0 10px; }
+
+  .findings-list { padding: 0 20px 4px; }
+  article.finding {
+    padding: 14px 0;
+    border-top: 1px solid var(--border);
+  }
+  article.finding:first-child { border-top: none; }
+  article.finding header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+  .badge {
+    font-size: 10.5px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    line-height: 1.4;
+  }
+  .badge-sev-low { background: rgba(100, 116, 139, 0.12); color: var(--sev-low); }
+  .badge-sev-medium { background: rgba(202, 138, 4, 0.14); color: var(--sev-medium); }
+  .badge-sev-high { background: rgba(234, 88, 12, 0.14); color: var(--sev-high); }
+  .badge-sev-critical { background: rgba(220, 38, 38, 0.14); color: var(--sev-critical); }
+  .finding-title { margin: 0; font-size: 15px; font-weight: 500; flex: 1; min-width: 200px; }
+  .finding-location { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; color: var(--muted); }
+  .finding-note, .finding-fix { margin-top: 6px; font-size: 14px; }
+  .finding-fix strong { color: var(--muted); font-weight: 500; }
+
+  .reviewer-source {
+    font-size: 12px;
+    color: var(--muted);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  .mechanical {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-top: 24px;
+    font-size: 14px;
+  }
+  .mechanical h3 { margin: 0 0 10px; font-size: 14px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .mechanical ul { margin: 0; padding-left: 20px; }
+  .mechanical li { margin-bottom: 4px; color: var(--text); }
+
+  footer.report-footer {
+    margin-top: 40px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--muted);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  footer .meta { display: flex; gap: 24px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+  <div class="container">
+
+    <header class="report-header">
+      <div class="title">
+        <h1>stayAlert — Validation Report</h1>
+        <div class="subtitle">_bmad-output/planning-artifacts/prds/prd-stayAlert-2026-08-08/prd.md</div>
+      </div>
+      <div class="grade grade-fair">FAIR</div>
+    </header>
+
+    <div class="synthesis">
+      <p>PRD sólido: forma de capability-spec que encaja con una herramienta internal de operador único, con 14/14 FRs con consecuencias testables, Non-Goals honestos y métricas de éxito que validan la tesis — incluyendo contra-métricas, que la mayoría de PRDs no tienen. Lo que está en riesgo es la precisión en los puntos de carga: el único mecanismo de salida se especifica con una región placeholder, el comportamiento de inyección/backoff está subespecificado, y los dos números sobre los que corre el producto (240 s, 1 s) se presentan como asentados sin evidencia ni tag de asunción. El índice de asunciones tiene dos roturas de roundtrip.</p>
+      <p>La revisión adversarial cambia materialmente el cuadro: el PRD no debe pasar a UX/Architecture tal como está. Tres críticos: (C1) SM-1 es la tesis no validada disfrazada de métrica, sin gate go/no-go y sin importar el riesgo principal del TR (Microsoft → presencia basada en interacción) ni su mitigación; (C2) el toque fantasma es teatro — el PRD contradice su propia investigación (el tap nunca llega a Teams, así que FR-7/FR-9/SM-4 regulan un evento inerte, y FR-9 es vacuo o viola privacidad); (C3) es una herramienta de fraude de presencia que nunca se nombra como tal — sin sección de ética/política, sin reconocer riesgo laboral/MDM, y con el "no es un jiggler" como evasión de categoría. Tres altos: salida como punto único de fallo, fallos de sesión a mitad de camino no manejados y silenciosos, y SM-1 no medible en emulador (el mock no tiene lógica de presencia).</p>
+    </div>
+
+    <div class="dimension-summary">
+      <div class="dim-card">
+        <div class="dim-name">Decision-readiness</div>
+        <div class="dim-verdict" style="color: var(--verdict-adequate)">adequate</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">Substance over theater</div>
+        <div class="dim-verdict" style="color: var(--verdict-strong)">strong</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">Strategic coherence</div>
+        <div class="dim-verdict" style="color: var(--verdict-strong)">strong</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">Done-ness clarity</div>
+        <div class="dim-verdict" style="color: var(--verdict-adequate)">adequate</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">Scope honesty</div>
+        <div class="dim-verdict" style="color: var(--verdict-strong)">strong</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">Downstream usability</div>
+        <div class="dim-verdict" style="color: var(--verdict-strong)">strong</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">Shape fit</div>
+        <div class="dim-verdict" style="color: var(--verdict-strong)">strong</div>
+      </div>
+    </div>
+
+    <section class="dimension">
+      <details open>
+        <summary>
+          <h2>Decision-readiness</h2>
+          <span class="verdict-pill verdict-adequate">adequate</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>Las decisiones se enuncian como decisiones, no enterradas: "v1 usa exclusivamente el patrón de salida" (§4.2 FR-6 Out of Scope), "descartado en v1 porque los toques fantasma se descartan con pantalla apagada y Doze ignora el wake lock" (§4.2 FR-5 Out of Scope), y el `[NOTE FOR PM]` en §6.2 sobre distribución Play se sitúa en una tensión real. Los trade-offs nombran lo que se renuncia. Las cuatro Open Questions (§8) son genuinamente abiertas. Lo que impide strong: los dos números operativos centrales se afirman como asentados ("el intervalo default (240 s) es el punto de equilibrio", §7 SM-C1) mientras OQ-1 admite que el comportamiento de Teams no está medido, y el pushback más obvio sobre este producto — el riesgo de política laboral de evadir el estado de presencia — nunca se reconoce (solo aparece el riesgo de política de Play, §2.2).</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Números centrales afirmados sin evidencia</h3>
+              <span class="finding-location">§4.2 FR-5, §4.3 FR-7, §7 SM-C1</span>
+            </header>
+            <div class="finding-note">"transcurrido 1 segundo", "cada 240 s (intervalo configurable)", "el intervalo default (240 s) es el punto de equilibrio" — presentados como asentados mientras OQ-1 dice que el timeout de foreground de Teams "no está documentado oficialmente; debe medirse empíricamente". Un decision-maker no puede distinguir si son confirmados o provisionales.</div>
+            <div class="finding-fix"><strong>Fix:</strong> etiquetar el delay de 1 s y el default de 240 s como `[ASSUMPTION: pending empirical validation]` (o citar la base del TR) y declarar qué los cambiaría.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Riesgo de política laboral no superficializado</h3>
+              <span class="finding-location">§1, §2.2</span>
+            </header>
+            <div class="finding-note">El propósito del producto es evadir un monitor de presencia, y el PRD solo reconoce el riesgo de política de Play ("la política de Play sobre automatización de accesibilidad es un riesgo documentado", §2.2). La objeción obvia — exposición a política corporativa/ToS del usuario — se esquiva.</div>
+            <div class="finding-fix"><strong>Fix:</strong> una línea en Non-Goals u Open Questions reconociendo el riesgo y la decisión de aceptarlo para uso internal.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>Substance over theater</h2>
+          <span class="verdict-pill verdict-strong">strong</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>Sin teatro detectado. Una persona (Roberto) que impulsa ambas UJs y es referenciada en las FRs; la Vision (§1) es específica del producto y no intercambiable (overlay negro, toques fantasma, salida 4-taps); los NFRs están acotados y son específicos del producto ("intervalo configurable (DataStore) con rango validado (p. ej. 60–600 s)", §4.3; "desplegarse en &lt; 500 ms", §4.4). Los JTBD "Emotional" (§2.1) son ligeros pero hacen trabajo real — justifican el diseño del patrón de salida y la garantía de "nunca toca la app objetivo".</p>
+          </div>
+        </div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>Strategic coherence</h2>
+          <span class="verdict-pill verdict-strong">strong</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>La tesis está enunciada y las features la sirven: mantener "Disponible" mientras se trabaja en otra cosa con mínimo impacto energético/visual (§1). Las métricas validan la tesis en lugar de medir actividad — SM-1 ("permanece en estado 'Disponible' durante sesiones de ≥ 8 h continuas") es la métrica de tesis, y SM-2 ("0 eventos táctiles recibidos por la app objetivo") valida la afirmación de seguridad central. Las contra-métricas están presentes y son significativas (SM-C1, SM-C2), y la tensión aparente entre el JTBD energético (§2.1) y SM-C1 se resuelve con honestidad. El alcance MVP (§6) es un scope de problem-solving coherente para una herramienta de operador único.</p>
+          </div>
+        </div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details open>
+        <summary>
+          <h2>Done-ness clarity</h2>
+          <span class="verdict-pill verdict-adequate">adequate</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>Inusualmente fuerte en conjunto: cada una de FR-1…FR-14 tiene consecuencias testables, con límites reales ("cada 240 s ± 5 s", "tap puro de 50–100 ms", "terminan la sesión en &lt; 500 ms tras el 4º toque", "negro absoluto `#000000`"). Pero tres puntos dejarían a un ingeniero adivinando, y uno es de carga.</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">La región de salida es un placeholder</h3>
+              <span class="finding-location">§4.2 FR-6</span>
+            </header>
+            <div class="finding-note">"región definida, p. ej. 15% del ancho y 15% del alto" — el único mecanismo de salida se especifica con un "p. ej.". Architecture y las stories no pueden construir el patrón de salida a partir de esto.</div>
+            <div class="finding-fix"><strong>Fix:</strong> fijar la región como spec v1 (p. ej. "esquina superior derecha: 15% del ancho × 15% del alto"), quitando el lenguaje de ejemplo del requisito.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Política de backoff sin especificar</h3>
+              <span class="finding-location">§4.2 FR-8</span>
+            </header>
+            <div class="finding-note">"reintenta con backoff y registra el fallo" pero la consecuencia dice "se reintenta en el siguiente ciclo o con backoff" — dos alternativas, y "backoff" nunca se define.</div>
+            <div class="finding-fix"><strong>Fix:</strong> enunciar la política (p. ej. reintento en el siguiente ciclo, log del fallo; sin backoff exponencial en v1).</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Calificador no testeable</h3>
+              <span class="finding-location">§4.5 FR-13</span>
+            </header>
+            <div class="finding-note">"El proceso no es eliminado por el sistema durante la sesión (en condiciones normales)". "En condiciones normales" no es una condición verificable.</div>
+            <div class="finding-fix"><strong>Fix:</strong> definir el test (p. ej. sesión de 8 h en un dispositivo de referencia sin interacción del usuario) o eliminar el calificador.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>Scope honesty</h2>
+          <span class="verdict-pill verdict-strong">strong</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>Non-Goals (§5) hace trabajo real y es específico ("No es un 'jiggler' de escritorio", "No es una herramienta de accesibilidad: el uso del AccessibilityService es instrumental"). El de-scoping es explícito con razones, no silencioso: modo wake-lock (§4.2 FR-5), mecanismos de salida alternativos (§4.2 FR-6), lista de apps (§4.1 FR-3), auto-reanudación (§4.5 FR-14), cada uno con rationale y deferral v2/v3 (§6.2). Densidad de open items (4 OQs + 6 asunciones + 1 NOTE FOR PM) proporcionada para una herramienta internal green-light, y las OQs son genuinamente abiertas. Las dos roturas de roundtrip del índice son mecánicas, no problemas de scope.</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Asunción sin tag inline</h3>
+              <span class="finding-location">§9 vs §2.2</span>
+            </header>
+            <div class="finding-note">La entrada del índice "§2.2 — Distribución por sideload APK (confirmado con el usuario)" no tiene tag `[ASSUMPTION: …]` en §2.2.</div>
+            <div class="finding-fix"><strong>Fix:</strong> añadir el tag inline en §2.2.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Asunción sin tag inline</h3>
+              <span class="finding-location">§9 vs §4.1</span>
+            </header>
+            <div class="finding-note">La entrada del índice "§4.1 — El permiso de notificaciones es necesario para la visibilidad de la notificación del FGS (no para iniciarlo)" no tiene tag inline en §4.1.</div>
+            <div class="finding-fix"><strong>Fix:</strong> añadir el tag inline en §4.1.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>Downstream usability</h2>
+          <span class="verdict-pill verdict-strong">strong</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>Este PRD alimenta UX, architecture y story creation, y está construido para eso: los términos del glosario se usan idénticamente en FRs, UJs y definiciones de SM ("app objetivo", "overlay de aislamiento", "orquestador de presencia", "toque fantasma", "patrón de salida"); los IDs son contiguos y únicos (FR-1…FR-14, SM-1…SM-5, SM-C1/C2, UJ-1/2); las referencias cruzadas resuelven (UJ-1 → FR-4, UJ-2 → FR-6, cadenas "Validates FR-x" de SMs); ambas UJs tienen protagonista nombrado (Roberto) con contexto inline. Las secciones se sostienen solas vía términos del glosario, no "ver arriba".</p>
+          </div>
+        </div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>Shape fit</h2>
+          <span class="verdict-pill verdict-strong">strong</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>La forma coincide con el producto: herramienta internal, rol de operador único → capability spec con FRs + consecuencias, que es exactamente lo que es. Densidad de UJs (2, protagonista nombrado) apropiada, no sobre-formalizada. Los SMs son operacionales más que orientados al usuario (SM-1, SM-2, SM-4 son métricas de test/validación), coincidiendo con la guía del rubric para este tipo de producto. Como PRD chain-top, las fortalezas de downstream usability son la inversión correcta.</p>
+          </div>
+        </div>
+      </details>
+    </section>
+
+    <section class="reviewer-section">
+      <details>
+        <summary>
+          <h2>Adversarial review</h2>
+          <span class="reviewer-source">review-adversarial-general.md</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>Veredicto: REVISE — no pasar a UX/Architecture en el estado actual. El PRD está bien estructurado y es inusualmente honesto en partes (nombra la estrategia de mock, el timeout no documentado de Teams, el riesgo OEM). Pero comete tres pecados estructurales: (1) enuncia la tesis del producto como métrica de éxito primaria (SM-1) sin gate de validación; (2) hereda mecánicamente requisitos (FR-7, FR-9, SM-4, el intervalo configurable, el lenguaje "refuerzo") de la investigación sin reconciliarlos con el hallazgo central de la propia investigación — que el toque fantasma es funcionalmente inerte; (3) nunca confronta lo que el producto realmente es: una herramienta para derrotar el sistema de monitoreo de presencia de un empleador.</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-critical">critical</span>
+              <h3 class="finding-title">C1. SM-1 es la tesis del producto disfrazada de métrica, sin gate de validación</h3>
+              <span class="finding-location">§7 SM-1, §8 OQ1, §6.2; TR risk table</span>
+            </header>
+            <div class="finding-note">SM-1 dice que la medida primaria de éxito es "la app objetivo permanece 'Disponible' durante sesiones de ≥ 8 h" — y luego admite, en su propio paréntesis, que el comportamiento del mecanismo no está documentado y necesita "medición empírica en validación". Eso no es una métrica de éxito; es una pregunta de investigación abierta que resulta ser la razón de existir del producto. El PRD no secuencia ninguna validación antes de la inversión de implementación (el TR recomienda explícitamente validación empírica temprana "antes de invertir en UI"), no importa el riesgo principal del TR (Microsoft → presencia basada en interacción, probabilidad Media, impacto Alto) ni su mitigación (overlay semi-transparente alpha ≤ 0.8 + NOT_TOUCHABLE — que FR-10 incluso bloquea estructuralmente al mandar overlay opaco), y no tiene punto go/no-go: "si la validación empírica muestra que Teams pasa a Away tras N minutos de foreground sin interacción, hacemos X" está ausente.</div>
+            <div class="finding-fix"><strong>Fix:</strong> añadir una sección "Validation Gate" (antes de completar el MVP): medir el timeout de foreground de Teams real en dispositivo real con el tenant objetivo; definir la regla de decisión (p. ej. "si la presencia pasa a Away dentro de 4 h de foreground ininterrumpido en ≥ 2 días consecutivos, STOP / pivotar a modo interacción"); degradar SM-1 de métrica a objetivo de validación; importar el riesgo de presencia basada en interacción y su mitigación a una FR o al menos una asunción explícita con trigger.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-critical">critical</span>
+              <h3 class="finding-title">C2. El toque fantasma es teatro — el PRD contradice su propio mecanismo</h3>
+              <span class="finding-location">§1, §3, FR-7, FR-9, SM-4, SM-C1; TR</span>
+            </header>
+            <div class="finding-note">La propia investigación del PRD (y su propia consecuencia FR-7) establece: el tap inyectado cae sobre el overlay opaco y nunca llega a Teams. Un evento que nunca llega a Teams no puede "reforzar la actividad percibida" de Teams — Teams nunca lo percibe. El único mecanismo que mantiene verde es el foreground. El PRD por tanto envía un gran aparato de requisitos alrededor de un evento inerte: FR-7 (inyección periódica 240 s, taps 50–100 ms), el NFR de intervalo configurable, SM-4 (99% de éxito de inyección) y SM-C1 regulan un mecanismo que no hace nada por el objetivo del producto. SM-4 es además una tautología: "fallos con reintento exitoso no cuentan como fallo" — una métrica definida para pasar siempre. FR-9 es internamente incoherente: verifica si el punto de inyección "no contenga un elemento interactivo (nodo clickable)" — ¿contra el árbol de qué ventana? (a) el del overlay — una View negra desnuda sin nodos clickables, haciendo la comprobación vacua; o (b) el de la app objetivo — lo que significa que el servicio de accesibilidad lee la UI de Teams, contradiciendo §5 ("No interactúa con la UI de la app objetivo") y creando una superficie real de contacto de datos. El PRD no lo dice, y cualquiera de las dos lecturas es condenatoria. Todo el aparato FR-7/FR-9 solo tiene sentido en el modo futuro de overlay semi-transparente del TR; el PRD copió los requisitos del modo futuro sobre el overlay opaco de v1 sin reconciliarlos.</div>
+            <div class="finding-fix"><strong>Fix:</strong> decidir y enunciar con claridad: en v1 el tap es vestigial (se mantiene solo para ejercitar `dispatchGesture` para el futuro modo semi-transparente) — entonces degradar FR-7/FR-9/SM-4/SM-C1 a "habilitadores técnicos, sin valor de éxito" y dejar de implicar que el tap contribuye a la presencia. O mantener el tap significativo adoptando el overlay semi-transparente del TR ahora. En cualquier caso, FR-9 debe especificar de qué ventana lee el árbol de accesibilidad y qué pasa con esos datos.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-critical">critical</span>
+              <h3 class="finding-title">C3. Ética y política: el PRD es una herramienta de fraude de presencia que nunca se nombra como tal</h3>
+              <span class="finding-location">§1, §2.1, §2.3 UJ-1, §5, §2.2</span>
+            </header>
+            <div class="finding-note">La única función del producto es hacer que un sistema de presencia orientado al empleador reporte "Disponible" cuando el usuario no está interactuando. Tres cosas que el PRD se niega a confrontar: (1) Descomposición del caso de uso — "Mantenerte Disponible mientras trabajas en otra cosa": si el usuario trabaja en un escritorio con computadora, Teams desktop ya lo muestra Disponible; la app de teléfono solo es de carga cuando el usuario NO está en la máquina — es decir, ausente o no trabajando. El único escenario donde la herramienta se necesita es el escenario donde es engañosa. El PRD nunca distingue "trabajando en otro lado (legítimo)" de "no trabajando (fraude de presencia)", y SM-1 — "≥ 8 h continuas sin interacción del usuario" — es precisamente la firma del fraude. (2) La evasión del "jiggler" — §5 dice "No es un 'jiggler' de escritorio: no simula movimiento de ratón ni teclado". Eso es una evasión de categoría, no una distinción. En móvil, mantener foreground más actividad inyectada para derrotar un monitor de inactividad es funcionalmente el equivalente móvil de un jiggler. (3) Consecuencia y exposición — en ninguna parte el PRD reconoce: (a) el uso puede violar los términos de empleo/política corporativa (la mayoría de empleadores tratan el fraude de presencia como evento disciplinario/terminación); (b) el dispositivo puede ser gestionado por el empleador — MDM/BYOD puede marcar apps sideload o servicios de accesibilidad, y el PRD nunca pregunta si el dispositivo objetivo es gestionado (un hueco de viabilidad, no solo ético); (c) "uso internal" es un eufemismo — si el APK se comparte con colegas, la exposición se multiplica; (d) Microsoft/admins de tenant pueden auditar presencia y actividad de dispositivo.</div>
+            <div class="finding-fix"><strong>Fix:</strong> añadir una sección explícita "Ethics, Policy &amp; Liability" que declare: el propósito de la herramienta es mantener una señal de presencia del empleador en verde sin interacción del usuario; el uso puede violar la política del empleador y el usuario asume ese riesgo; sin distribución fuera de los dispositivos del propietario; un aviso en lenguaje claro en la app en el primer lanzamiento ("Usar esta app puede tergiversar tu disponibilidad ante tu empleador"). Añadir también una Open Question: "¿El dispositivo objetivo es gestionado por el empleador (MDM)?"</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H1. Punto único de fallo en la salida — y cada modo de fallo sale en silencio</h3>
+              <span class="finding-location">FR-6, §4.2 Out of Scope, FR-14, UJ-2, §8 OQ4</span>
+            </header>
+            <div class="finding-note">El patrón 4-taps es el único mecanismo de salida en v1. Si el overlay falla al renderizarse o el proceso se atasca, la única recuperación del usuario es force-stop — invisible para un usuario no técnico, y el JTBD emocional ("confianza en que... salir del modo es siempre posible") se viola por diseño. Un kill switch basado en notificación es la feature de robustez más barata de esta app y está diferida. Separadamente, el patrón tiene cero confirmación: una secuencia de 4 taps dentro de ventanas de 500 ms en la región 15%×15% superior derecha — un teléfono en el bolsillo, el borde de una mesa o una bolsa puede producirlo (la esquina superior derecha es exactamente donde un pulgar/palma presiona contra un teléfono plegado). Una salida accidental es de bajo costo, pero el silencio de ella no lo es: sin feedback de "sesión terminada", sin indicador de estado, el usuario puede creer que la sesión corre durante horas después de muerta.</div>
+            <div class="finding-fix"><strong>Fix:</strong> hacer del control de notificación un requisito v1 (acción de stop en la notificación del FGS). Añadir un evento visible post-salida (snackbar/notificación "Sesión terminada"). Considerar requerir confirmación (p. ej. 4-taps + hold) si el falso positivo importa más que la velocidad de salida — al mínimo documentar la tasa de falsos positivos aceptada.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H2. Modos de fallo a mitad de sesión no manejados — la sesión muere en silencio y el usuario no puede saberlo</h3>
+              <span class="finding-location">FR-13, FR-14, FR-12, §8 OQ4, §2.1</span>
+            </header>
+            <div class="finding-note">FR-14 solo garantiza consistencia de estado tras un kill del proceso. No hace nada por los modos de fallo que realmente ocurrirán en producción: (a) el gestor de batería OEM mata el FGS (Xiaomi/Samsung — el TR lo tasa Media/Medio y el PRD lo relega a Open Question): el overlay desaparece, Teams se vuelve visible en pantalla, la presencia pasa a Away, y el usuario no recibe nada — el fallo más sensible de la app (exponer el contenido de la app objetivo en un dispositivo de trabajo) es también el más probable; (b) permiso de overlay revocado a mitad de sesión: el estado de sesión permanece "Aislada" mientras no existe overlay; nada lo detecta; (c) servicio de accesibilidad deshabilitado a mitad de sesión: el orquestador sigue "inyectando" al vacío, la sesión sigue viva en papel; (d) la app objetivo crashea: la sesión continúa, el overlay se sienta sobre el launcher, la presencia está muerta; (e) botón de encendido durante la sesión: pantalla apagada termina la relevancia de FLAG_KEEP_SCREEN_ON y la premisa de la sesión; el orquestador sigue corriendo, la presencia se voltea. El PRD no tiene detección de pantalla apagada y UJ-1 ("la sesión se mantiene indefinidamente") es simplemente falsa bajo este evento.</div>
+            <div class="finding-fix"><strong>Fix:</strong> añadir FRs para: (a) watchdog de liveness que detecte ausencia de overlay/deshabilitación de servicio/pantalla apagada y termine la sesión con notificación visible al usuario; (b) manejo de crash de la app objetivo (terminar sesión o relanzar); (c) onboarding de exención de batería OEM como paso de configuración v1 (actualmente solo Open Question — es la diferencia entre "funciona" y "funciona por un día" en el dispositivo real del usuario).</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H3. El mock no puede medir lo que el PRD afirma que mide — SM-1 no es verificable en el emulador</h3>
+              <span class="finding-location">SM-1, SM-2, §3, §6.1</span>
+            </header>
+            <div class="finding-note">SM-1 afirma medibilidad "en emulador con mock". Pero el mock está definido como una app que "registra los toques recibidos" — no tiene lógica de presencia en absoluto. No hay estado "Disponible" en el mock que observar. El emulador puede validar exactamente dos cosas: el mock permanece en foreground (resumed), y el mock recibe 0 toques (SM-2). Ambas son condiciones necesarias para el producto; ninguna es el objetivo. El objetivo real — "Teams muestra Disponible durante 8 h" — depende de la lógica de presencia propietaria de Teams (timeout no documentado, política del admin del tenant, versión, cambios server-side) que el mock estructuralmente no puede modelar. SM-1 como está no es medible en el emulador; el PRD sobreafirma su propia testabilidad. El único lugar donde SM-1 puede medirse es el dispositivo de Roberto, con su versión de Teams, en su tenant — un tamaño de muestra de 1, sujeto a política del admin del tenant y a un cambio server-side de Microsoft que rompa el mecanismo en cualquier momento.</div>
+            <div class="finding-fix"><strong>Fix:</strong> dividir SM-1 en: (a) un proxy testeable — "la app objetivo permanece resumed ≥ 8 h con 0 toques recibidos" (mock, emulador), y (b) un paso de validación empírica explícito — "Teams real muestra Disponible a través de ≥ 2 días laborales completos" (dispositivo, Teams real, config de tenant documentada), con la regla go/no-go de C1 adjunta. No presentar (a) como evidencia de (b).</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M1. Sin modelo de amenazas para la combinación de permisos más peligrosa de Android</h3>
+              <span class="finding-location">§1, §5, FR-1/FR-2</span>
+            </header>
+            <div class="finding-note">SYSTEM_ALERT_WINDOW + AccessibilityService es exactamente la combinación usada por troyanos bancarios y spyware; la app además declara un FGS `specialUse`. El PRD no tiene sección de seguridad. Para un APK personal de un solo usuario el riesgo directo es modesto, pero: (a) "uso internal" con compartición de APK crea una superficie de trojanización — una copia re-firmada con estos permisos es un vehículo perfecto de malware, y el PRD no tiene guía de firma, verificación de hash o higiene de distribución; (b) el servicio de accesibilidad sí tiene la capacidad de leer la UI de otras apps (y la ambigüedad de FR-9, C2, puede ejercitarla de hecho); (c) las notas de seguridad de la propia investigación nunca emergen como requisitos — p. ej. el TR menciona FLAG_SECURE como opcional; para una app cuya función es el ocultamiento visual ese flag debería ser no-opcional, y nada en el PRD lo menciona.</div>
+            <div class="finding-fix"><strong>Fix:</strong> documentar el modelo de amenazas y las mitigaciones v1 (sin acceso a red — forzar vía manifest, sin acceso a almacenamiento, sin logging de árboles de otras apps, paso de verificación de firma para distribución).</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M2. SM-1 ignora la física de una sesión de 8 horas con pantalla encendida</h3>
+              <span class="finding-location">SM-1, FR-12</span>
+            </header>
+            <div class="finding-note">"≥ 8 h continuas" con la pantalla encendida (incluso OLED negro) drena la batería del teléfono hasta vaciarla en el mismo lapso. Una sesión que muere en la hora 6 porque la batería llegó al 1% es una medición SM-1 fallida causada por la física, no por el producto bajo prueba. La definición de la métrica asume silenciosamente que el teléfono está enchufado o casi lleno.</div>
+            <div class="finding-fix"><strong>Fix:</strong> enunciarlo: "la sesión debe sobrevivir ≥ 8 h con el dispositivo cargando o ≥ 80% de batería al inicio", y añadir manejo de nivel de batería (avisar/terminar a batería baja) como FR.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M3. El PRD bloquea la única mitigación del TR para el riesgo existencial</h3>
+              <span class="finding-location">FR-10, §5; TR</span>
+            </header>
+            <div class="finding-note">El único camino hacia adelante del TR si Microsoft endurece la presencia (el riesgo que tasa Alto) es un overlay semi-transparente que deje pasar toques para que los taps inyectados lleguen a Teams. El PRD manda un overlay opaco como invariante v1. Nada en el PRD marca FR-10 como contingente o esboza la transición. El producto está arquitectónicamente bloqueado en el mecanismo que más probablemente será lo primero que Microsoft mate.</div>
+            <div class="finding-fix"><strong>Fix:</strong> al mínimo, añadir una asunción: "FR-10 overlay opaco es solo v1; la variante semi-transparente (TR) es la adaptación planificada si aterriza la presencia basada en interacción", y asegurar que el aparato FR-9/árbol de accesibilidad sea la base para ese modo en lugar de código muerto.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M4. "Pantalla completa" sobreafirma lo que el overlay cubre</h3>
+              <span class="finding-location">FR-5, FR-10, UJ-1; TR</span>
+            </header>
+            <div class="finding-note">El PRD dice "pantalla completa" / "cubre la pantalla completa" mientras su propia investigación establece que la status bar y el shade de quick settings permanecen accesibles (probabilidad Alta, aceptado). Las consecuencias testables de FR-10 se cubren ("incluida la zona de la app objetivo") — señal de que la contradicción se conoce y se tapa. Más allá de la honestidad: quick settings accesibles a mitad de sesión significa que el usuario puede alternar Wi-Fi/brillo/No Molestar accidentalmente, y una status bar es visible en la pantalla "negra".</div>
+            <div class="finding-fix"><strong>Fix:</strong> decir lo que entrega: "el overlay cubre la zona de la app objetivo; la status bar y el shade de quick settings permanecen accesibles (comportamiento del sistema)". Añadir a FR-12/FR-6 qué pasa cuando el usuario tira del shade o una llamada entrante se renderiza sobre el overlay.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L1. La semántica de lanzamiento puede derrotar la afirmación "resumed" de FR-5</h3>
+              <span class="finding-location">FR-5, UJ-1</span>
+            </header>
+            <div class="finding-note">Si Teams ya está corriendo con una actividad de chat encima de su task, un intent explícito a MainActivity puede no traer la task al frente como asume la FR (el comportamiento de existing-task con FLAG_ACTIVITY_NEW_TASK varía). También, la ventana de 1 segundo entre lanzamiento y overlay es un momento sin protección donde los toques del usuario llegan a Teams.</div>
+            <div class="finding-fix"><strong>Fix:</strong> verificar en la validación de Fase 4; añadir una FR de que la sesión aborta limpiamente si la app objetivo no se confirma resumed.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L2. El check de instalado de FR-3 necesita &lt;queries&gt;</h3>
+              <span class="finding-location">FR-3</span>
+            </header>
+            <div class="finding-note">Detectar si `com.microsoft.teams` está instalado bajo las reglas de visibilidad de paquetes (API 30+) requiere una declaración `<queries>` en el manifest (o `resolveActivity` contra un intent declarado). La consecuencia del PRD dice "el sistema valida que el paquete esté instalado" sin la implicación de manifest.</div>
+            <div class="finding-fix"><strong>Fix:</strong> trivial, pero morderá en implementación — añadir la implicación de manifest a la FR.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L3. Punto de inyección sin especificar</h3>
+              <span class="finding-location">FR-7, FR-9</span>
+            </header>
+            <div class="finding-note">El PRD nunca dice dónde en el overlay cae el tap (política de coordenadas), ni qué significa "zona inerte" para un overlay sin UI. Decidir: punto fijo (p. ej. 50%/85%), que además debe estar fuera de la región de salida de FR-6 — o la región de salida y la región de tap podrían interactuar de una forma que nadie ha especificado.</div>
+            <div class="finding-fix"><strong>Fix:</strong> fijar el punto de inyección y declarar su relación con la región de salida.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L4. SM-4 es una métrica diseñada para pasar</h3>
+              <span class="finding-location">SM-4</span>
+            </header>
+            <div class="finding-note">"Fallos con reintento exitoso no cuentan como fallo" — combinado con FR-8 ("la sesión no se interrumpe por un fallo puntual"), la métrica no puede fallar por construcción.</div>
+            <div class="finding-fix"><strong>Fix:</strong> definirla como "éxito al primer intento ≥ 99%" o eliminarla.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L5. Inconsistencia de idioma</h3>
+              <span class="finding-location">documento completo</span>
+            </header>
+            <div class="finding-note">El PRD está en español; si los artefactos downstream (UX, stories) continúan en español, bien — pero confirmarlo deliberadamente. Un working title marcado "confirm" en estado draft está bien; solo no enviarlo downstream sin confirmar.</div>
+            <div class="finding-fix"><strong>Fix:</strong> confirmar el título y el idioma de los artefactos downstream.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <div class="mechanical">
+      <h3>Mechanical notes</h3>
+      <ul>
+        <li>Assumption Index roundtrip: 2 de 6 entradas del índice carecen de tag inline `[ASSUMPTION]` — §2.2 (distribución sideload) y §4.1 (permiso de notificaciones). Las otras cuatro (FR-3, FR-5, FR-6, FR-14) hacen roundtrip correctamente.</li>
+        <li>Continuidad de IDs: limpia — FR-1…FR-14 contiguos, SM-1…SM-5 + SM-C1/C2, UJ-1/2; sin huecos, sin duplicados, todas las referencias cruzadas resuelven.</li>
+        <li>Deriva de glosario: ninguna — los términos se usan consistentemente en caso y forma en todo el documento.</li>
+        <li>Naming sin resolver: "Working title — confirm." (§0) es una decisión colgante; pertenece a Open Questions o debe resolverse.</li>
+        <li>Secciones requeridas: todas presentes para una herramienta internal chain-top (Vision, Target User, Glossary, Features, Non-Goals, MVP Scope, Success Metrics, Open Questions, Assumptions Index).</li>
+      </ul>
+    </div>
+
+    <footer class="report-footer">
+      <div class="meta">
+        <span>Rubric: .agents/skills/bmad-prd/assets/prd-validation-checklist.md</span>
+        <span>Generated: 2026-08-08T21:30:00Z</span>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>
