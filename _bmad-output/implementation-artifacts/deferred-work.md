@@ -30,3 +30,8 @@
 
 - `SessionCommandHandler` no usa `clock` (parámetro muerto) [`app/src/main/java/com/stayalert/system/SessionCommandHandler.kt:176`] — deferred; se resuelve con el fix del delay vía clock o se elimina en refactor.
 - `MainActivity` con `lateinit` + lazy circular [`app/src/main/java/com/stayalert/ui/MainActivity.kt:78-110`] — deferred; considerar `AppContainer`/`ServiceLocator` simple cuando crezca el wiring (stories 2.4/2.5).
+
+## Deferred from: code review of 2-3-patron-de-salida.md (2026-08-09)
+
+- `PatternDetector` no expone el estado del contador [`app/src/main/java/com/stayalert/domain/PatternDetector.kt`] — deferred; añadir `tapCount` expuesto si se necesita debug en el futuro.
+- `MainActivity` crea dos `SystemClock()` separados [`app/src/main/java/com/stayalert/ui/MainActivity.kt:97-100`] — deferred; compartir instancia única con `AppContainer`.

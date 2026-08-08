@@ -36,6 +36,7 @@ import com.stayalert.data.DataStoreSettingsRepository
 import com.stayalert.data.SystemAppInstalledChecker
 import com.stayalert.data.SystemBatteryOptimizationChecker
 import com.stayalert.data.SystemPermissionAuditor
+import com.stayalert.domain.PatternDetector
 import com.stayalert.domain.SessionController
 import com.stayalert.domain.SessionState
 import com.stayalert.domain.SessionValidator
@@ -96,6 +97,7 @@ class MainActivity : ComponentActivity() {
             context = applicationContext,
             scope = lifecycleScope,
             clock = SystemClock(),
+            patternDetector = PatternDetector(clock = SystemClock()),
             onEvent = { event -> sessionController.emit(event) }
         )
     }

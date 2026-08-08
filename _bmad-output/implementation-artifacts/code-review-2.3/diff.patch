@@ -1,0 +1,220 @@
+diff --git a/_bmad-output/implementation-artifacts/sprint-status.yaml b/_bmad-output/implementation-artifacts/sprint-status.yaml
+index 153f002..586ea5b 100644
+--- a/_bmad-output/implementation-artifacts/sprint-status.yaml
++++ b/_bmad-output/implementation-artifacts/sprint-status.yaml
+@@ -57,7 +57,7 @@ development_status:
+   epic-2: in-progress
+   2-1-nucleo-de-sesion: done
+   2-2-despliegue-secuencial-y-overlay-de-aislamiento: done
+-  2-3-patron-de-salida: backlog
++  2-3-patron-de-salida: review
+   2-4-servicio-en-primer-plano-y-notificaciones: backlog
+   2-5-watchdog-de-sesion: backlog
+   2-6-mock-de-teams-y-validacion-e2e: backlog
+diff --git a/app/src/main/java/com/stayalert/domain/PatternDetector.kt b/app/src/main/java/com/stayalert/domain/PatternDetector.kt
+new file mode 100644
+index 0000000..821e562
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/domain/PatternDetector.kt
+@@ -0,0 +1,45 @@
++package com.stayalert.domain
++
++class PatternDetector(
++    private val clock: Clock,
++    private val requiredTaps: Int = 4,
++    private val regionFraction: Float = 0.15f,
++    private val windowMs: Long = SessionConstants.PATTERN_WINDOW_MS
++) {
++
++    private var tapCount = 0
++    private var lastTapTime: Long = 0
++
++    fun onTouch(x: Float, y: Float, width: Float, height: Float): Boolean {
++        val now = clock.now()
++
++        if (!isInRegion(x, y, width, height)) {
++            reset()
++            return false
++        }
++
++        if (tapCount > 0 && now - lastTapTime > windowMs) {
++            reset()
++        }
++
++        tapCount++
++        lastTapTime = now
++
++        if (tapCount >= requiredTaps) {
++            reset()
++            return true
++        }
++        return false
++    }
++
++    fun reset() {
++        tapCount = 0
++        lastTapTime = 0
++    }
++
++    private fun isInRegion(x: Float, y: Float, width: Float, height: Float): Boolean {
++        val regionWidth = width * regionFraction
++        val regionHeight = height * regionFraction
++        return x >= width - regionWidth && y <= regionHeight
++    }
++}
+diff --git a/app/src/main/java/com/stayalert/system/SystemOverlayController.kt b/app/src/main/java/com/stayalert/system/SystemOverlayController.kt
+index 0098530..50f4c03 100644
+--- a/app/src/main/java/com/stayalert/system/SystemOverlayController.kt
++++ b/app/src/main/java/com/stayalert/system/SystemOverlayController.kt
+@@ -6,11 +6,13 @@ import android.graphics.PixelFormat
+ import android.os.Build
+ import android.provider.Settings
+ import android.view.Gravity
++import android.view.MotionEvent
+ import android.view.View
+ import android.view.WindowManager
+ import android.view.WindowManager.LayoutParams
+ import com.stayalert.domain.Clock
+ import com.stayalert.domain.OverlayController
++import com.stayalert.domain.PatternDetector
+ import com.stayalert.domain.SessionConstants
+ import com.stayalert.domain.SessionEvent
+ import kotlinx.coroutines.CoroutineScope
+@@ -20,6 +22,7 @@ class SystemOverlayController(
+     private val context: Context,
+     private val scope: CoroutineScope,
+     private val clock: Clock,
++    private val patternDetector: PatternDetector,
+     private val onEvent: (SessionEvent) -> Unit
+ ) : OverlayController {
+ 
+@@ -37,6 +40,20 @@ class SystemOverlayController(
+                 val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+                 val view = View(context).apply {
+                     setBackgroundColor(Color.BLACK)
++                    setOnTouchListener { _, event ->
++                        if (event.action == MotionEvent.ACTION_DOWN) {
++                            val detected = patternDetector.onTouch(
++                                x = event.x,
++                                y = event.y,
++                                width = width.toFloat(),
++                                height = height.toFloat()
++                            )
++                            if (detected) {
++                                onEvent(SessionEvent.PatternDetected)
++                            }
++                        }
++                        true
++                    }
+                 }
+                 val params = LayoutParams(
+                     LayoutParams.MATCH_PARENT,
+diff --git a/app/src/main/java/com/stayalert/ui/MainActivity.kt b/app/src/main/java/com/stayalert/ui/MainActivity.kt
+index 8234590..c8201c2 100644
+--- a/app/src/main/java/com/stayalert/ui/MainActivity.kt
++++ b/app/src/main/java/com/stayalert/ui/MainActivity.kt
+@@ -36,6 +36,7 @@ import com.stayalert.data.DataStoreSettingsRepository
+ import com.stayalert.data.SystemAppInstalledChecker
+ import com.stayalert.data.SystemBatteryOptimizationChecker
+ import com.stayalert.data.SystemPermissionAuditor
++import com.stayalert.domain.PatternDetector
+ import com.stayalert.domain.SessionController
+ import com.stayalert.domain.SessionState
+ import com.stayalert.domain.SessionValidator
+@@ -96,6 +97,7 @@ class MainActivity : ComponentActivity() {
+             context = applicationContext,
+             scope = lifecycleScope,
+             clock = SystemClock(),
++            patternDetector = PatternDetector(clock = SystemClock()),
+             onEvent = { event -> sessionController.emit(event) }
+         )
+     }
+diff --git a/app/src/test/java/com/stayalert/domain/PatternDetectorTest.kt b/app/src/test/java/com/stayalert/domain/PatternDetectorTest.kt
+new file mode 100644
+index 0000000..d28f2c6
+--- /dev/null
++++ b/app/src/test/java/com/stayalert/domain/PatternDetectorTest.kt
+@@ -0,0 +1,83 @@
++package com.stayalert.domain
++
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++class PatternDetectorTest {
++
++    private class FakeClock : Clock {
++        var time: Long = 0
++        override fun now(): Long = time
++    }
++
++    private val width = 1080f
++    private val height = 2400f
++
++    private fun tapInRegion(detector: PatternDetector, clock: FakeClock, deltaMs: Long = 100): Boolean {
++        clock.time += deltaMs
++        return detector.onTouch(x = width - 50f, y = 50f, width = width, height = height)
++    }
++
++    @Test
++    fun `cuatro toques en la region detectan el patron`() {
++        val clock = FakeClock()
++        val detector = PatternDetector(clock)
++
++        repeat(3) { tapInRegion(detector, clock) }
++        val detected = tapInRegion(detector, clock)
++
++        assertTrue(detected)
++    }
++
++    @Test
++    fun `toque fuera de la region reinicia el contador`() {
++        val clock = FakeClock()
++        val detector = PatternDetector(clock)
++
++        repeat(3) { tapInRegion(detector, clock) }
++        clock.time += 100
++        detector.onTouch(x = 100f, y = 2000f, width = width, height = height)
++        val detected = tapInRegion(detector, clock)
++
++        assertFalse(detected)
++    }
++
++    @Test
++    fun `toque fuera de la ventana temporal reinicia el contador`() {
++        val clock = FakeClock()
++        val detector = PatternDetector(clock)
++
++        repeat(3) { tapInRegion(detector, clock) }
++        clock.time += 1000
++        val detected = tapInRegion(detector, clock)
++
++        assertFalse(detected)
++    }
++
++    @Test
++    fun `tres toques no detectan el patron`() {
++        val clock = FakeClock()
++        val detector = PatternDetector(clock)
++
++        val first = tapInRegion(detector, clock)
++        val second = tapInRegion(detector, clock)
++        val third = tapInRegion(detector, clock)
++
++        assertFalse(first)
++        assertFalse(second)
++        assertFalse(third)
++    }
++
++    @Test
++    fun `reset limpia el contador`() {
++        val clock = FakeClock()
++        val detector = PatternDetector(clock)
++
++        repeat(3) { tapInRegion(detector, clock) }
++        detector.reset()
++        val detected = tapInRegion(detector, clock)
++
++        assertFalse(detected)
++    }
++}

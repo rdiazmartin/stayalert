@@ -6,11 +6,13 @@ import android.graphics.PixelFormat
 import android.os.Build
 import android.provider.Settings
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.WindowManager.LayoutParams
 import com.stayalert.domain.Clock
 import com.stayalert.domain.OverlayController
+import com.stayalert.domain.PatternDetector
 import com.stayalert.domain.SessionConstants
 import com.stayalert.domain.SessionEvent
 import kotlinx.coroutines.CoroutineScope
@@ -20,6 +22,7 @@ class SystemOverlayController(
     private val context: Context,
     private val scope: CoroutineScope,
     private val clock: Clock,
+    private val patternDetector: PatternDetector,
     private val onEvent: (SessionEvent) -> Unit
 ) : OverlayController {
 
@@ -37,6 +40,20 @@ class SystemOverlayController(
                 val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
                 val view = View(context).apply {
                     setBackgroundColor(Color.BLACK)
+                    setOnTouchListener { _, event ->
+                        if (event.action == MotionEvent.ACTION_DOWN) {
+                            val detected = patternDetector.onTouch(
+                                x = event.x,
+                                y = event.y,
+                                width = width.toFloat(),
+                                height = height.toFloat()
+                            )
+                            if (detected) {
+                                onEvent(SessionEvent.PatternDetected)
+                            }
+                        }
+                        true
+                    }
                 }
                 val params = LayoutParams(
                     LayoutParams.MATCH_PARENT,
@@ -81,6 +98,7 @@ class SystemOverlayController(
             } finally {
                 overlayView = null
                 windowManager = null
+                patternDetector.reset()
             }
         }
     }
