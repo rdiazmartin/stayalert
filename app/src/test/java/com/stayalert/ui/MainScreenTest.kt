@@ -8,6 +8,8 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.stayalert.data.SettingsRepository
+import com.stayalert.domain.SessionController
+import com.stayalert.domain.SessionValidator
 import com.stayalert.ui.theme.StayAlertTheme
 import com.stayalert.ui.viewmodel.MainViewModel
 import kotlinx.coroutines.Dispatchers
@@ -54,6 +56,25 @@ class MainScreenTest {
         }
     }
 
+    private fun createViewModel(repository: SettingsRepository): MainViewModel {
+        val controller = SessionController(
+            scope = kotlinx.coroutines.test.TestScope(),
+            validator = SessionValidator(
+                permissionAuditor = object : com.stayalert.data.PermissionAuditor {
+                    override fun canDrawOverlays(): Boolean = true
+                    override fun areNotificationsEnabled(): Boolean = true
+                    override fun audit(): List<com.stayalert.data.PermissionStatus> = emptyList()
+                },
+                settingsRepository = repository,
+                appInstalledChecker = object : com.stayalert.data.AppInstalledChecker {
+                    override fun isInstalled(packageName: String): Boolean = true
+                }
+            ),
+            onCommand = {}
+        )
+        return MainViewModel(repository, controller)
+    }
+
     @SuppressLint("ViewModelConstructorInComposable")
     @Test
     fun `modal visible cuando aviso no aceptado y boton deshabilitado`() {
@@ -61,7 +82,7 @@ class MainScreenTest {
         try {
             composeRule.setContent {
                 StayAlertTheme {
-                    MainScreen(viewModel = MainViewModel(FakeSettingsRepository(false)), onOpenSettings = {})
+                    MainScreen(viewModel = createViewModel(FakeSettingsRepository(false)), onOpenSettings = {})
                 }
             }
 
@@ -80,7 +101,7 @@ class MainScreenTest {
             val fakeRepository = FakeSettingsRepository(false)
             composeRule.setContent {
                 StayAlertTheme {
-                    MainScreen(viewModel = MainViewModel(fakeRepository), onOpenSettings = {})
+                    MainScreen(viewModel = createViewModel(fakeRepository), onOpenSettings = {})
                 }
             }
 

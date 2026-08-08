@@ -54,8 +54,8 @@ development_status:
   1-3-auditoria-y-guiado-de-permisos: done
   1-4-configuracion-de-la-app-objetivo-y-exencion-de-bateria: done
   epic-1-retrospective: optional
-  epic-2: backlog
-  2-1-nucleo-de-sesion: backlog
+  epic-2: in-progress
+  2-1-nucleo-de-sesion: done
   2-2-despliegue-secuencial-y-overlay-de-aislamiento: backlog
   2-3-patron-de-salida: backlog
   2-4-servicio-en-primer-plano-y-notificaciones: backlog

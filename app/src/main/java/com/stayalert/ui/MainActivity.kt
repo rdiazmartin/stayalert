@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -29,11 +30,18 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.stayalert.data.DataStoreSettingsRepository
 import com.stayalert.data.SystemAppInstalledChecker
 import com.stayalert.data.SystemBatteryOptimizationChecker
 import com.stayalert.data.SystemPermissionAuditor
+import com.stayalert.domain.SessionController
+import com.stayalert.domain.SessionState
+import com.stayalert.domain.SessionValidator
+import com.stayalert.domain.SystemClock
+import com.stayalert.domain.TerminationReason
+import com.stayalert.domain.ValidationFailure
 import com.stayalert.ui.components.ResponsibleUseNotice
 import com.stayalert.ui.settings.SettingsScreen
 import com.stayalert.ui.settings.SettingsViewModel
@@ -63,13 +71,25 @@ class MainActivity : ComponentActivity() {
         SystemBatteryOptimizationChecker(applicationContext)
     }
 
+    private val sessionController by lazy {
+        SessionController(
+            scope = lifecycleScope,
+            validator = SessionValidator(
+                permissionAuditor,
+                settingsRepository,
+                appInstalledChecker
+            ),
+            onCommand = { /* no-op: componentes SO en stories 2.2-2.5 */ }
+        )
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContent {
             StayAlertTheme {
                 val mainViewModel: MainViewModel = viewModel(
-                    factory = MainViewModel.Factory(settingsRepository)
+                    factory = MainViewModel.Factory(settingsRepository, sessionController)
                 )
                 val settingsViewModel: SettingsViewModel = viewModel(
                     factory = SettingsViewModel.Factory(
@@ -103,6 +123,13 @@ fun MainScreen(
     onOpenSettings: () -> Unit
 ) {
     val noticeAccepted by viewModel.noticeAccepted.collectAsStateWithLifecycle()
+    val sessionState by viewModel.sessionState.collectAsStateWithLifecycle()
+    val startError by viewModel.startError.collectAsStateWithLifecycle()
+    val validationFailure by viewModel.validationFailure.collectAsStateWithLifecycle()
+    val lastTerminationReason by viewModel.lastTerminationReason.collectAsStateWithLifecycle()
+
+    val isLanzando = sessionState is SessionState.Lanzando
+    val canStart = noticeAccepted && validationFailure == null && !isLanzando
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -121,8 +148,11 @@ fun MainScreen(
             Spacer(modifier = Modifier.height(48.dp))
 
             Button(
-                onClick = { /* no-op: sesión no implementada aún */ },
-                enabled = noticeAccepted,
+                onClick = {
+                    viewModel.clearStartError()
+                    viewModel.startSession()
+                },
+                enabled = canStart,
                 shape = RoundedCornerShape(999.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Accent,
@@ -131,9 +161,36 @@ fun MainScreen(
                     disabledContentColor = SurfaceBase
                 )
             ) {
+                if (isLanzando) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.height(20.dp),
+                        color = AccentOn,
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
                 Text(
-                    text = "Iniciar Jornada",
+                    text = if (isLanzando) "Abriendo app objetivo…" else "Iniciar Jornada",
                     style = MaterialTheme.typography.labelLarge
+                )
+            }
+
+            val message = startError?.message() ?: validationFailure?.message()
+            if (message != null) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+
+            lastTerminationReason?.let { reason ->
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Sesión terminada: ${reason.text()}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
@@ -155,4 +212,25 @@ fun MainScreen(
     if (!noticeAccepted) {
         ResponsibleUseNotice(onAccept = viewModel::acceptNotice)
     }
+}
+
+private fun ValidationFailure.message(): String = when (this) {
+    ValidationFailure.PERMISSION_OVERLAY -> "Falta el permiso de overlay. Tócalo para abrir Ajustes."
+    ValidationFailure.PERMISSION_NOTIFICATIONS -> "Falta el permiso de notificaciones. Tócalo para abrir Ajustes."
+    ValidationFailure.NOTICE_NOT_ACCEPTED -> "Debes aceptar el aviso de uso responsable."
+    ValidationFailure.TARGET_NOT_INSTALLED -> "La app objetivo no está instalada."
+}
+
+private fun TerminationReason.text(): String = when (this) {
+    TerminationReason.Pattern -> "patrón de salida"
+    TerminationReason.ManualStop -> "detención manual"
+    TerminationReason.ScreenOff -> "pantalla apagada"
+    TerminationReason.OverlayMissing -> "overlay ausente"
+    TerminationReason.PermissionRevoked -> "permiso revocado"
+    TerminationReason.TargetLeftForeground -> "la app objetivo salió de primer plano"
+    TerminationReason.TargetCrashed -> "la app objetivo se cerró"
+    TerminationReason.HideOverlayWindows -> "overlay no dibujado"
+    TerminationReason.BatteryCritical -> "batería baja"
+    TerminationReason.LaunchFailed -> "no se pudo abrir la app objetivo"
+    TerminationReason.OverlayFailed -> "no se pudo desplegar el overlay"
 }

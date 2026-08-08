@@ -20,3 +20,8 @@
 
 - `DEFAULT_TARGET_ACTIVITY` hardcodeado como constante top-level [`app/src/main/java/com/stayalert/data/DataStoreSettingsRepository.kt:58`] — deferred; centralizar defaults con `TargetAppLauncher` (AD-3) en story 2.1.
 - `SettingsScreen` crece en complejidad [`app/src/main/java/com/stayalert/ui/settings/SettingsScreen.kt`] — deferred; extraer `TargetAppSection` y `BatterySection` como componentes cuando se añada más configuración.
+
+## Deferred from: code review of 2-1-nucleo-de-sesion.md (2026-08-09)
+
+- `SystemClock` acopla `domain/` a Android [`app/src/main/java/com/stayalert/domain/SystemClock.kt:5`] — deferred; mover `SystemClock` a `system/` (capa de integración) en refactor.
+- `BatteryWarning` no emite aviso de notificación [`app/src/main/java/com/stayalert/domain/SessionController.kt:157-159`] — deferred; requiere `Notifier` (story 2.4) para publicar el aviso al 15% (FR-16).
