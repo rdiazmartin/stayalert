@@ -1,0 +1,51 @@
+package com.stayalert.ui.viewmodel
+
+import com.stayalert.data.SettingsRepository
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class MainViewModelTest {
+
+    private class FakeSettingsRepository(initial: Boolean = false) : SettingsRepository {
+        private val _noticeAccepted = MutableStateFlow(initial)
+        override val noticeAccepted: StateFlow<Boolean> = _noticeAccepted
+
+        override suspend fun setNoticeAccepted(value: Boolean) {
+            _noticeAccepted.value = value
+        }
+    }
+
+    @Test
+    fun `noticeAccepted expone el valor inicial del repository`() = runTest {
+        Dispatchers.setMain(UnconfinedTestDispatcher())
+        try {
+            val viewModel = MainViewModel(FakeSettingsRepository(false))
+            assertFalse(viewModel.noticeAccepted.value)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun `acceptNotice propaga la aceptacion al repository`() = runTest {
+        Dispatchers.setMain(UnconfinedTestDispatcher())
+        try {
+            val fakeRepository = FakeSettingsRepository(false)
+            val viewModel = MainViewModel(fakeRepository)
+            viewModel.acceptNotice()
+            assertTrue(viewModel.noticeAccepted.value)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+}

@@ -50,7 +50,7 @@ story_location: _bmad-output/implementation-artifacts
 development_status:
   epic-1: in-progress
   1-1-scaffolding-del-proyecto-y-tema-visual: done
-  1-2-aviso-de-uso-responsable: backlog
+  1-2-aviso-de-uso-responsable: done
   1-3-auditoria-y-guiado-de-permisos: backlog
   1-4-configuracion-de-la-app-objetivo-y-exencion-de-bateria: backlog
   epic-1-retrospective: optional

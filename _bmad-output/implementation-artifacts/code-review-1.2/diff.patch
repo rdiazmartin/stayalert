@@ -1,0 +1,561 @@
+diff --git a/_bmad-output/implementation-artifacts/sprint-status.yaml b/_bmad-output/implementation-artifacts/sprint-status.yaml
+index c8d33df..4d63f92 100644
+--- a/_bmad-output/implementation-artifacts/sprint-status.yaml
++++ b/_bmad-output/implementation-artifacts/sprint-status.yaml
+@@ -50,7 +50,7 @@ story_location: _bmad-output/implementation-artifacts
+ development_status:
+   epic-1: in-progress
+   1-1-scaffolding-del-proyecto-y-tema-visual: done
+-  1-2-aviso-de-uso-responsable: backlog
++  1-2-aviso-de-uso-responsable: review
+   1-3-auditoria-y-guiado-de-permisos: backlog
+   1-4-configuracion-de-la-app-objetivo-y-exencion-de-bateria: backlog
+   epic-1-retrospective: optional
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index a3a8111..9fd211a 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -43,7 +43,10 @@ android {
+ dependencies {
+     implementation(libs.androidx.core.ktx)
+     implementation(libs.androidx.lifecycle.runtime.ktx)
++    implementation(libs.androidx.lifecycle.viewmodel.ktx)
++    implementation(libs.androidx.lifecycle.viewmodel.compose)
+     implementation(libs.androidx.activity.compose)
++    implementation(libs.androidx.datastore.preferences)
+     implementation(platform(libs.androidx.compose.bom))
+     implementation(libs.androidx.ui)
+     implementation(libs.androidx.ui.graphics)
+@@ -52,6 +55,7 @@ dependencies {
+ 
+     testImplementation(libs.junit)
+     testImplementation(libs.robolectric)
++    testImplementation(libs.kotlinx.coroutines.test)
+     testImplementation(platform(libs.androidx.compose.bom))
+     testImplementation(libs.androidx.ui.test.junit4)
+ 
+diff --git a/app/src/main/java/com/stayalert/data/DataStoreSettingsRepository.kt b/app/src/main/java/com/stayalert/data/DataStoreSettingsRepository.kt
+new file mode 100644
+index 0000000..456f601
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/data/DataStoreSettingsRepository.kt
+@@ -0,0 +1,28 @@
++package com.stayalert.data
++
++import android.content.Context
++import androidx.datastore.core.DataStore
++import androidx.datastore.preferences.core.Preferences
++import androidx.datastore.preferences.core.edit
++import androidx.datastore.preferences.preferencesDataStore
++import kotlinx.coroutines.flow.Flow
++import kotlinx.coroutines.flow.map
++
++private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
++
++class DataStoreSettingsRepository(
++    context: Context,
++    private val dataStore: DataStore<Preferences> = context.applicationContext.dataStore
++) : SettingsRepository {
++
++    override val noticeAccepted: Flow<Boolean> = dataStore.data
++        .map { preferences ->
++            preferences[SettingsKeys.NOTICE_ACCEPTED] ?: false
++        }
++
++    override suspend fun setNoticeAccepted(value: Boolean) {
++        dataStore.edit { preferences ->
++            preferences[SettingsKeys.NOTICE_ACCEPTED] = value
++        }
++    }
++}
+diff --git a/app/src/main/java/com/stayalert/data/SettingsKeys.kt b/app/src/main/java/com/stayalert/data/SettingsKeys.kt
+new file mode 100644
+index 0000000..a3be604
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/data/SettingsKeys.kt
+@@ -0,0 +1,10 @@
++package com.stayalert.data
++
++import androidx.datastore.preferences.core.booleanPreferencesKey
++import androidx.datastore.preferences.core.stringPreferencesKey
++
++object SettingsKeys {
++    val NOTICE_ACCEPTED = booleanPreferencesKey("notice_accepted")
++    val TARGET_PACKAGE = stringPreferencesKey("target_package")
++    val TARGET_ACTIVITY = stringPreferencesKey("target_activity")
++}
+diff --git a/app/src/main/java/com/stayalert/data/SettingsRepository.kt b/app/src/main/java/com/stayalert/data/SettingsRepository.kt
+new file mode 100644
+index 0000000..53c5b30
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/data/SettingsRepository.kt
+@@ -0,0 +1,8 @@
++package com.stayalert.data
++
++import kotlinx.coroutines.flow.Flow
++
++interface SettingsRepository {
++    val noticeAccepted: Flow<Boolean>
++    suspend fun setNoticeAccepted(value: Boolean)
++}
+diff --git a/app/src/main/java/com/stayalert/ui/MainActivity.kt b/app/src/main/java/com/stayalert/ui/MainActivity.kt
+index 4821782..11193ff 100644
+--- a/app/src/main/java/com/stayalert/ui/MainActivity.kt
++++ b/app/src/main/java/com/stayalert/ui/MainActivity.kt
+@@ -4,14 +4,32 @@ import android.os.Bundle
+ import androidx.activity.ComponentActivity
+ import androidx.activity.compose.setContent
+ import androidx.activity.enableEdgeToEdge
+-import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Spacer
+ import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material3.Button
++import androidx.compose.material3.ButtonDefaults
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
++import androidx.compose.runtime.collectAsState
++import androidx.compose.runtime.getValue
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.unit.dp
++import androidx.lifecycle.viewmodel.compose.viewModel
++import com.stayalert.data.DataStoreSettingsRepository
++import com.stayalert.ui.components.ResponsibleUseNotice
++import com.stayalert.ui.theme.Accent
++import com.stayalert.ui.theme.AccentOn
++import com.stayalert.ui.theme.InkDisabled
++import com.stayalert.ui.theme.SurfaceBase
+ import com.stayalert.ui.theme.StayAlertTheme
++import com.stayalert.ui.viewmodel.MainViewModel
+ 
+ class MainActivity : ComponentActivity() {
+     override fun onCreate(savedInstanceState: Bundle?) {
+@@ -19,22 +37,55 @@ class MainActivity : ComponentActivity() {
+         super.onCreate(savedInstanceState)
+         setContent {
+             StayAlertTheme {
+-                MainScreen()
++                val viewModel: MainViewModel = viewModel(
++                    factory = MainViewModel.Factory(
++                        DataStoreSettingsRepository(applicationContext)
++                    )
++                )
++                MainScreen(viewModel = viewModel)
+             }
+         }
+     }
+ }
+ 
+ @Composable
+-fun MainScreen() {
+-    Box(
+-        modifier = Modifier.fillMaxSize(),
+-        contentAlignment = Alignment.Center
++fun MainScreen(viewModel: MainViewModel) {
++    val noticeAccepted by viewModel.noticeAccepted.collectAsState()
++
++    Column(
++        modifier = Modifier
++            .fillMaxSize()
++            .padding(16.dp),
++        verticalArrangement = Arrangement.Center,
++        horizontalAlignment = Alignment.CenterHorizontally
+     ) {
+         Text(
+             text = "stayAlert",
+             style = MaterialTheme.typography.headlineSmall,
+             color = MaterialTheme.colorScheme.onBackground
+         )
++
++        Spacer(modifier = Modifier.height(48.dp))
++
++        Button(
++            onClick = { /* no-op: sesión no implementada aún */ },
++            enabled = noticeAccepted,
++            shape = RoundedCornerShape(999.dp),
++            colors = ButtonDefaults.buttonColors(
++                containerColor = Accent,
++                contentColor = AccentOn,
++                disabledContainerColor = InkDisabled,
++                disabledContentColor = SurfaceBase
++            )
++        ) {
++            Text(
++                text = "Iniciar Jornada",
++                style = MaterialTheme.typography.labelLarge
++            )
++        }
++    }
++
++    if (!noticeAccepted) {
++        ResponsibleUseNotice(onAccept = viewModel::acceptNotice)
+     }
+ }
+diff --git a/app/src/main/java/com/stayalert/ui/components/ResponsibleUseNotice.kt b/app/src/main/java/com/stayalert/ui/components/ResponsibleUseNotice.kt
+new file mode 100644
+index 0000000..6e0f285
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/ui/components/ResponsibleUseNotice.kt
+@@ -0,0 +1,85 @@
++package com.stayalert.ui.components
++
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material3.Button
++import androidx.compose.material3.ButtonDefaults
++import androidx.compose.material3.Card
++import androidx.compose.material3.CardDefaults
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.style.TextAlign
++import androidx.compose.ui.unit.dp
++import androidx.compose.ui.window.Dialog
++import androidx.compose.ui.window.DialogProperties
++import com.stayalert.ui.theme.Accent
++import com.stayalert.ui.theme.AccentOn
++import com.stayalert.ui.theme.BorderHairline
++import com.stayalert.ui.theme.SurfaceRaised
++
++@Composable
++fun ResponsibleUseNotice(
++    onAccept: () -> Unit
++) {
++    Dialog(
++        onDismissRequest = { /* no-op: no dismissable por fuera */ },
++        properties = DialogProperties(
++            dismissOnBackPress = false,
++            dismissOnClickOutside = false
++        )
++    ) {
++        Card(
++            shape = RoundedCornerShape(16.dp),
++            colors = CardDefaults.cardColors(containerColor = SurfaceRaised),
++            border = androidx.compose.foundation.BorderStroke(1.dp, BorderHairline),
++            modifier = Modifier.fillMaxWidth()
++        ) {
++            Column(
++                modifier = Modifier
++                    .fillMaxWidth()
++                    .padding(24.dp),
++                verticalArrangement = Arrangement.spacedBy(16.dp),
++                horizontalAlignment = Alignment.CenterHorizontally
++            ) {
++                Text(
++                    text = "Aviso de uso responsable",
++                    style = MaterialTheme.typography.headlineSmall,
++                    color = MaterialTheme.colorScheme.onBackground
++                )
++
++                Text(
++                    text = "Esta app mantiene una señal de presencia activa sin interacción del usuario. " +
++                            "Su uso puede no estar alineado con la política de tu empleador.",
++                    style = MaterialTheme.typography.bodyLarge,
++                    color = MaterialTheme.colorScheme.onBackground,
++                    textAlign = TextAlign.Start,
++                    modifier = Modifier.fillMaxWidth()
++                )
++
++                Spacer(modifier = Modifier.height(8.dp))
++
++                Button(
++                    onClick = onAccept,
++                    shape = RoundedCornerShape(999.dp),
++                    colors = ButtonDefaults.buttonColors(
++                        containerColor = Accent,
++                        contentColor = AccentOn
++                    )
++                ) {
++                    Text(
++                        text = "Entiendo y acepto",
++                        style = MaterialTheme.typography.labelLarge
++                    )
++                }
++            }
++        }
++    }
++}
+diff --git a/app/src/main/java/com/stayalert/ui/viewmodel/MainViewModel.kt b/app/src/main/java/com/stayalert/ui/viewmodel/MainViewModel.kt
+new file mode 100644
+index 0000000..e563d73
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/ui/viewmodel/MainViewModel.kt
+@@ -0,0 +1,38 @@
++package com.stayalert.ui.viewmodel
++
++import androidx.lifecycle.ViewModel
++import androidx.lifecycle.ViewModelProvider
++import androidx.lifecycle.viewModelScope
++import com.stayalert.data.SettingsRepository
++import kotlinx.coroutines.flow.SharingStarted
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.stateIn
++import kotlinx.coroutines.launch
++
++class MainViewModel(
++    private val settingsRepository: SettingsRepository
++) : ViewModel() {
++
++    val noticeAccepted: StateFlow<Boolean> = settingsRepository.noticeAccepted
++        .stateIn(
++            scope = viewModelScope,
++            started = SharingStarted.Eagerly,
++            initialValue = false
++        )
++
++    fun acceptNotice() {
++        viewModelScope.launch {
++            settingsRepository.setNoticeAccepted(true)
++        }
++    }
++
++    class Factory(
++        private val settingsRepository: SettingsRepository
++    ) : ViewModelProvider.Factory {
++        @Suppress("UNCHECKED_CAST")
++        override fun <T : ViewModel> create(modelClass: Class<T>): T {
++            require(modelClass.isAssignableFrom(MainViewModel::class.java))
++            return MainViewModel(settingsRepository) as T
++        }
++    }
++}
+diff --git a/app/src/test/java/com/stayalert/data/SettingsRepositoryTest.kt b/app/src/test/java/com/stayalert/data/SettingsRepositoryTest.kt
+new file mode 100644
+index 0000000..f8275ae
+--- /dev/null
++++ b/app/src/test/java/com/stayalert/data/SettingsRepositoryTest.kt
+@@ -0,0 +1,41 @@
++package com.stayalert.data
++
++import android.content.Context
++import androidx.datastore.preferences.core.PreferenceDataStoreFactory
++import androidx.datastore.preferences.preferencesDataStoreFile
++import androidx.test.core.app.ApplicationProvider
++import kotlinx.coroutines.ExperimentalCoroutinesApi
++import kotlinx.coroutines.flow.first
++import kotlinx.coroutines.test.runTest
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++import org.junit.runner.RunWith
++import org.robolectric.RobolectricTestRunner
++import org.robolectric.annotation.Config
++
++@OptIn(ExperimentalCoroutinesApi::class)
++@RunWith(RobolectricTestRunner::class)
++@Config(sdk = [34])
++class SettingsRepositoryTest {
++
++    private fun createRepository(): SettingsRepository {
++        val context = ApplicationProvider.getApplicationContext<Context>()
++        val file = context.preferencesDataStoreFile("test_settings_${System.nanoTime()}")
++        val dataStore = PreferenceDataStoreFactory.create(produceFile = { file })
++        return DataStoreSettingsRepository(context, dataStore)
++    }
++
++    @Test
++    fun `noticeAccepted es false por defecto`() = runTest {
++        val repository = createRepository()
++        assertFalse(repository.noticeAccepted.first())
++    }
++
++    @Test
++    fun `setNoticeAccepted true persiste el valor`() = runTest {
++        val repository = createRepository()
++        repository.setNoticeAccepted(true)
++        assertTrue(repository.noticeAccepted.first())
++    }
++}
+diff --git a/app/src/test/java/com/stayalert/ui/MainScreenTest.kt b/app/src/test/java/com/stayalert/ui/MainScreenTest.kt
+new file mode 100644
+index 0000000..61b1852
+--- /dev/null
++++ b/app/src/test/java/com/stayalert/ui/MainScreenTest.kt
+@@ -0,0 +1,84 @@
++package com.stayalert.ui
++
++import android.annotation.SuppressLint
++import androidx.compose.ui.test.assertIsDisplayed
++import androidx.compose.ui.test.assertIsEnabled
++import androidx.compose.ui.test.assertIsNotEnabled
++import androidx.compose.ui.test.junit4.createComposeRule
++import androidx.compose.ui.test.onNodeWithText
++import androidx.compose.ui.test.performClick
++import com.stayalert.data.SettingsRepository
++import com.stayalert.ui.theme.StayAlertTheme
++import com.stayalert.ui.viewmodel.MainViewModel
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.ExperimentalCoroutinesApi
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.test.UnconfinedTestDispatcher
++import kotlinx.coroutines.test.resetMain
++import kotlinx.coroutines.test.setMain
++import org.junit.Rule
++import org.junit.Test
++import org.junit.runner.RunWith
++import org.robolectric.RobolectricTestRunner
++import org.robolectric.annotation.Config
++import org.robolectric.annotation.LooperMode
++
++@OptIn(ExperimentalCoroutinesApi::class)
++@RunWith(RobolectricTestRunner::class)
++@Config(sdk = [34])
++@LooperMode(LooperMode.Mode.PAUSED)
++class MainScreenTest {
++
++    @get:Rule
++    val composeRule = createComposeRule()
++
++    private class FakeSettingsRepository(initial: Boolean = false) : SettingsRepository {
++        private val _noticeAccepted = MutableStateFlow(initial)
++        override val noticeAccepted: StateFlow<Boolean> = _noticeAccepted
++
++        override suspend fun setNoticeAccepted(value: Boolean) {
++            _noticeAccepted.value = value
++        }
++    }
++
++    @SuppressLint("ViewModelConstructorInComposable")
++    @Test
++    fun `modal visible cuando aviso no aceptado y boton deshabilitado`() {
++        Dispatchers.setMain(UnconfinedTestDispatcher())
++        try {
++            composeRule.setContent {
++                StayAlertTheme {
++                    MainScreen(viewModel = MainViewModel(FakeSettingsRepository(false)))
++                }
++            }
++
++            composeRule.onNodeWithText("Aviso de uso responsable").assertIsDisplayed()
++            composeRule.onNodeWithText("Iniciar Jornada").assertIsNotEnabled()
++        } finally {
++            Dispatchers.resetMain()
++        }
++    }
++
++    @SuppressLint("ViewModelConstructorInComposable")
++    @Test
++    fun `aceptar oculta modal y habilita boton`() {
++        Dispatchers.setMain(UnconfinedTestDispatcher())
++        try {
++            val fakeRepository = FakeSettingsRepository(false)
++            composeRule.setContent {
++                StayAlertTheme {
++                    MainScreen(viewModel = MainViewModel(fakeRepository))
++                }
++            }
++
++            composeRule.onNodeWithText("Entiendo y acepto").performClick()
++            composeRule.waitForIdle()
++
++            composeRule.onNodeWithText("Aviso de uso responsable").assertDoesNotExist()
++            composeRule.onNodeWithText("Iniciar Jornada").assertIsEnabled()
++        } finally {
++            Dispatchers.resetMain()
++        }
++    }
++}
+diff --git a/app/src/test/java/com/stayalert/ui/MainViewModelTest.kt b/app/src/test/java/com/stayalert/ui/MainViewModelTest.kt
+new file mode 100644
+index 0000000..ddb0561
+--- /dev/null
++++ b/app/src/test/java/com/stayalert/ui/MainViewModelTest.kt
+@@ -0,0 +1,51 @@
++package com.stayalert.ui.viewmodel
++
++import com.stayalert.data.SettingsRepository
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.ExperimentalCoroutinesApi
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.test.UnconfinedTestDispatcher
++import kotlinx.coroutines.test.resetMain
++import kotlinx.coroutines.test.runTest
++import kotlinx.coroutines.test.setMain
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++@OptIn(ExperimentalCoroutinesApi::class)
++class MainViewModelTest {
++
++    private class FakeSettingsRepository(initial: Boolean = false) : SettingsRepository {
++        private val _noticeAccepted = MutableStateFlow(initial)
++        override val noticeAccepted: StateFlow<Boolean> = _noticeAccepted
++
++        override suspend fun setNoticeAccepted(value: Boolean) {
++            _noticeAccepted.value = value
++        }
++    }
++
++    @Test
++    fun `noticeAccepted expone el valor inicial del repository`() = runTest {
++        Dispatchers.setMain(UnconfinedTestDispatcher())
++        try {
++            val viewModel = MainViewModel(FakeSettingsRepository(false))
++            assertFalse(viewModel.noticeAccepted.value)
++        } finally {
++            Dispatchers.resetMain()
++        }
++    }
++
++    @Test
++    fun `acceptNotice propaga la aceptacion al repository`() = runTest {
++        Dispatchers.setMain(UnconfinedTestDispatcher())
++        try {
++            val fakeRepository = FakeSettingsRepository(false)
++            val viewModel = MainViewModel(fakeRepository)
++            viewModel.acceptNotice()
++            assertTrue(viewModel.noticeAccepted.value)
++        } finally {
++            Dispatchers.resetMain()
++        }
++    }
++}
+diff --git a/gradle/libs.versions.toml b/gradle/libs.versions.toml
+index c01b5d7..9015ce5 100644
+--- a/gradle/libs.versions.toml
++++ b/gradle/libs.versions.toml
+@@ -5,6 +5,8 @@ coreKtx = "1.17.0"
+ lifecycleRuntimeKtx = "2.9.4"
+ activityCompose = "1.11.0"
+ composeBom = "2026.06.01"
++datastore = "1.1.6"
++kotlinxCoroutinesTest = "1.10.1"
+ junit = "4.13.2"
+ junitVersion = "1.3.0"
+ espressoCore = "3.7.0"
+@@ -13,8 +15,11 @@ robolectric = "4.16"
+ [libraries]
+ androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+ androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtx" }
++androidx-lifecycle-viewmodel-ktx = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-ktx", version.ref = "lifecycleRuntimeKtx" }
++androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycleRuntimeKtx" }
+ androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+ androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
++androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
+ androidx-ui = { group = "androidx.compose.ui", name = "ui" }
+ androidx-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
+ androidx-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
+@@ -25,6 +30,7 @@ androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "j
+ androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
+ androidx-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
+ androidx-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
++kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinxCoroutinesTest" }
+ robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
+ 
+ [plugins]
