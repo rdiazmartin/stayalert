@@ -49,7 +49,7 @@ class MainScreenTest {
         try {
             composeRule.setContent {
                 StayAlertTheme {
-                    MainScreen(viewModel = MainViewModel(FakeSettingsRepository(false)))
+                    MainScreen(viewModel = MainViewModel(FakeSettingsRepository(false)), onOpenSettings = {})
                 }
             }
 
@@ -68,7 +68,7 @@ class MainScreenTest {
             val fakeRepository = FakeSettingsRepository(false)
             composeRule.setContent {
                 StayAlertTheme {
-                    MainScreen(viewModel = MainViewModel(fakeRepository))
+                    MainScreen(viewModel = MainViewModel(fakeRepository), onOpenSettings = {})
                 }
             }
 

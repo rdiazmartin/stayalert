@@ -10,3 +10,8 @@
 
 - `SharingStarted.Eagerly` mantiene el flow activo sin suscriptores [`app/src/main/java/com/stayalert/ui/viewmodel/MainViewModel.kt:14`] — deferred; revisar si se puede usar `WhileSubscribed` con test helper cuando se introduzca más configuración (story 1.4).
 - `SettingsKeys.TARGET_PACKAGE` y `TARGET_ACTIVITY` sin uso [`app/src/main/java/com/stayalert/data/SettingsKeys.kt:5-6`] — deferred; se usarán en story 1.4.
+
+## Deferred from: code review of 1-3-auditoria-y-guiado-de-permisos.md (2026-08-09)
+
+- Navegación con `mutableStateOf` en vez de Navigation Compose [`app/src/main/java/com/stayalert/ui/MainActivity.kt:134`] — deferred; evaluar Navigation Compose cuando haya más pantallas (story 1.4 añadirá más configuración).
+- `SettingsViewModel.refresh()` no es idempotente ante recomposiciones [`app/src/main/java/com/stayalert/ui/settings/SettingsScreen.kt:297-305`] — deferred; no requiere acción (LocalLifecycleOwner es estable).

@@ -1,0 +1,598 @@
+diff --git a/_bmad-output/implementation-artifacts/sprint-status.yaml b/_bmad-output/implementation-artifacts/sprint-status.yaml
+index 86484d0..446c000 100644
+--- a/_bmad-output/implementation-artifacts/sprint-status.yaml
++++ b/_bmad-output/implementation-artifacts/sprint-status.yaml
+@@ -51,7 +51,7 @@ development_status:
+   epic-1: in-progress
+   1-1-scaffolding-del-proyecto-y-tema-visual: done
+   1-2-aviso-de-uso-responsable: done
+-  1-3-auditoria-y-guiado-de-permisos: backlog
++  1-3-auditoria-y-guiado-de-permisos: review
+   1-4-configuracion-de-la-app-objetivo-y-exencion-de-bateria: backlog
+   epic-1-retrospective: optional
+   epic-2: backlog
+diff --git a/app/src/main/java/com/stayalert/data/PermissionAuditor.kt b/app/src/main/java/com/stayalert/data/PermissionAuditor.kt
+new file mode 100644
+index 0000000..acd7495
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/data/PermissionAuditor.kt
+@@ -0,0 +1,19 @@
++package com.stayalert.data
++
++enum class PermissionState { GRANTED, PENDING }
++
++data class PermissionStatus(
++    val permission: Permission,
++    val state: PermissionState
++)
++
++enum class Permission {
++    OVERLAY,
++    NOTIFICATIONS
++}
++
++interface PermissionAuditor {
++    fun canDrawOverlays(): Boolean
++    fun areNotificationsEnabled(): Boolean
++    fun audit(): List<PermissionStatus>
++}
+diff --git a/app/src/main/java/com/stayalert/data/SystemPermissionAuditor.kt b/app/src/main/java/com/stayalert/data/SystemPermissionAuditor.kt
+new file mode 100644
+index 0000000..6687338
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/data/SystemPermissionAuditor.kt
+@@ -0,0 +1,21 @@
++package com.stayalert.data
++
++import android.app.NotificationManager
++import android.content.Context
++import android.provider.Settings
++
++class SystemPermissionAuditor(private val context: Context) : PermissionAuditor {
++
++    override fun canDrawOverlays(): Boolean =
++        Settings.canDrawOverlays(context)
++
++    override fun areNotificationsEnabled(): Boolean {
++        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
++        return manager.areNotificationsEnabled()
++    }
++
++    override fun audit(): List<PermissionStatus> = listOf(
++        PermissionStatus(Permission.OVERLAY, if (canDrawOverlays()) PermissionState.GRANTED else PermissionState.PENDING),
++        PermissionStatus(Permission.NOTIFICATIONS, if (areNotificationsEnabled()) PermissionState.GRANTED else PermissionState.PENDING)
++    )
++}
+diff --git a/app/src/main/java/com/stayalert/ui/MainActivity.kt b/app/src/main/java/com/stayalert/ui/MainActivity.kt
+index de15665..43bf86e 100644
+--- a/app/src/main/java/com/stayalert/ui/MainActivity.kt
++++ b/app/src/main/java/com/stayalert/ui/MainActivity.kt
+@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
+ import androidx.activity.compose.setContent
+ import androidx.activity.enableEdgeToEdge
+ import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.Spacer
+ import androidx.compose.foundation.layout.fillMaxSize
+@@ -13,23 +14,34 @@ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.shape.RoundedCornerShape
+ import androidx.compose.material3.Button
+ import androidx.compose.material3.ButtonDefaults
++import androidx.compose.material3.Icon
++import androidx.compose.material3.IconButton
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.remember
++import androidx.compose.runtime.setValue
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.graphics.vector.ImageVector
++import androidx.compose.ui.res.vectorResource
+ import androidx.compose.ui.unit.dp
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
+ import androidx.lifecycle.viewmodel.compose.viewModel
+ import com.stayalert.data.DataStoreSettingsRepository
++import com.stayalert.data.SystemPermissionAuditor
+ import com.stayalert.ui.components.ResponsibleUseNotice
++import com.stayalert.ui.settings.SettingsScreen
++import com.stayalert.ui.settings.SettingsViewModel
+ import com.stayalert.ui.theme.Accent
+ import com.stayalert.ui.theme.AccentOn
+ import com.stayalert.ui.theme.InkDisabled
+ import com.stayalert.ui.theme.SurfaceBase
+ import com.stayalert.ui.theme.StayAlertTheme
+ import com.stayalert.ui.viewmodel.MainViewModel
++import com.stayalert.R
+ 
+ class MainActivity : ComponentActivity() {
+ 
+@@ -37,53 +49,90 @@ class MainActivity : ComponentActivity() {
+         DataStoreSettingsRepository(applicationContext)
+     }
+ 
++    private val permissionAuditor by lazy {
++        SystemPermissionAuditor(applicationContext)
++    }
++
+     override fun onCreate(savedInstanceState: Bundle?) {
+         enableEdgeToEdge()
+         super.onCreate(savedInstanceState)
+         setContent {
+             StayAlertTheme {
+-                val viewModel: MainViewModel = viewModel(
++                val mainViewModel: MainViewModel = viewModel(
+                     factory = MainViewModel.Factory(settingsRepository)
+                 )
+-                MainScreen(viewModel = viewModel)
++                val settingsViewModel: SettingsViewModel = viewModel(
++                    factory = SettingsViewModel.Factory(permissionAuditor)
++                )
++                var showSettings by remember { mutableStateOf(false) }
++
++                if (showSettings) {
++                    SettingsScreen(
++                        viewModel = settingsViewModel,
++                        onBack = { showSettings = false }
++                    )
++                } else {
++                    MainScreen(
++                        viewModel = mainViewModel,
++                        onOpenSettings = { showSettings = true }
++                    )
++                }
+             }
+         }
+     }
+ }
+ 
+ @Composable
+-fun MainScreen(viewModel: MainViewModel) {
++fun MainScreen(
++    viewModel: MainViewModel,
++    onOpenSettings: () -> Unit
++) {
+     val noticeAccepted by viewModel.noticeAccepted.collectAsStateWithLifecycle()
+ 
+-    Column(
+-        modifier = Modifier
+-            .fillMaxSize()
+-            .padding(16.dp),
+-        verticalArrangement = Arrangement.Center,
+-        horizontalAlignment = Alignment.CenterHorizontally
+-    ) {
+-        Text(
+-            text = "stayAlert",
+-            style = MaterialTheme.typography.headlineSmall,
+-            color = MaterialTheme.colorScheme.onBackground
+-        )
++    Box(modifier = Modifier.fillMaxSize()) {
++        Column(
++            modifier = Modifier
++                .fillMaxSize()
++                .padding(16.dp),
++            verticalArrangement = Arrangement.Center,
++            horizontalAlignment = Alignment.CenterHorizontally
++        ) {
++            Text(
++                text = "stayAlert",
++                style = MaterialTheme.typography.headlineSmall,
++                color = MaterialTheme.colorScheme.onBackground
++            )
++
++            Spacer(modifier = Modifier.height(48.dp))
+ 
+-        Spacer(modifier = Modifier.height(48.dp))
++            Button(
++                onClick = { /* no-op: sesión no implementada aún */ },
++                enabled = noticeAccepted,
++                shape = RoundedCornerShape(999.dp),
++                colors = ButtonDefaults.buttonColors(
++                    containerColor = Accent,
++                    contentColor = AccentOn,
++                    disabledContainerColor = InkDisabled,
++                    disabledContentColor = SurfaceBase
++                )
++            ) {
++                Text(
++                    text = "Iniciar Jornada",
++                    style = MaterialTheme.typography.labelLarge
++                )
++            }
++        }
+ 
+-        Button(
+-            onClick = { /* no-op: sesión no implementada aún */ },
+-            enabled = noticeAccepted,
+-            shape = RoundedCornerShape(999.dp),
+-            colors = ButtonDefaults.buttonColors(
+-                containerColor = Accent,
+-                contentColor = AccentOn,
+-                disabledContainerColor = InkDisabled,
+-                disabledContentColor = SurfaceBase
+-            )
++        IconButton(
++            onClick = onOpenSettings,
++            modifier = Modifier
++                .align(Alignment.TopEnd)
++                .padding(8.dp)
+         ) {
+-            Text(
+-                text = "Iniciar Jornada",
+-                style = MaterialTheme.typography.labelLarge
++            Icon(
++                imageVector = ImageVector.vectorResource(R.drawable.ic_settings),
++                contentDescription = "Configuración",
++                tint = MaterialTheme.colorScheme.onBackground
+             )
+         }
+     }
+diff --git a/app/src/main/java/com/stayalert/ui/settings/SettingsScreen.kt b/app/src/main/java/com/stayalert/ui/settings/SettingsScreen.kt
+new file mode 100644
+index 0000000..de3f3cd
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/ui/settings/SettingsScreen.kt
+@@ -0,0 +1,168 @@
++package com.stayalert.ui.settings
++
++import android.content.Context
++import android.content.Intent
++import android.net.Uri
++import android.provider.Settings
++import androidx.compose.foundation.BorderStroke
++import androidx.compose.foundation.Canvas
++import androidx.compose.foundation.clickable
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.size
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material3.Card
++import androidx.compose.material3.CardDefaults
++import androidx.compose.material3.HorizontalDivider
++import androidx.compose.material3.Icon
++import androidx.compose.material3.IconButton
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.DisposableEffect
++import androidx.compose.runtime.getValue
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.graphics.vector.ImageVector
++import androidx.compose.ui.platform.LocalContext
++import androidx.compose.ui.res.vectorResource
++import androidx.compose.ui.unit.dp
++import androidx.lifecycle.Lifecycle
++import androidx.lifecycle.LifecycleEventObserver
++import androidx.lifecycle.compose.LocalLifecycleOwner
++import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import com.stayalert.R
++import com.stayalert.data.Permission
++import com.stayalert.data.PermissionState
++import com.stayalert.data.PermissionStatus
++import com.stayalert.ui.theme.Accent
++import com.stayalert.ui.theme.BorderHairline
++import com.stayalert.ui.theme.InkDisabled
++import com.stayalert.ui.theme.SurfaceRaised
++
++@Composable
++fun SettingsScreen(
++    viewModel: SettingsViewModel,
++    onBack: () -> Unit
++) {
++    val permissions by viewModel.permissions.collectAsStateWithLifecycle()
++    val context = LocalContext.current
++    val lifecycleOwner = LocalLifecycleOwner.current
++
++    DisposableEffect(lifecycleOwner) {
++        val observer = LifecycleEventObserver { _, event ->
++            if (event == Lifecycle.Event.ON_RESUME) {
++                viewModel.refresh()
++            }
++        }
++        lifecycleOwner.lifecycle.addObserver(observer)
++        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
++    }
++
++    Column(
++        modifier = Modifier
++            .fillMaxSize()
++            .padding(16.dp),
++        verticalArrangement = Arrangement.spacedBy(16.dp)
++    ) {
++        Row(
++            modifier = Modifier.fillMaxWidth(),
++            verticalAlignment = Alignment.CenterVertically
++        ) {
++            IconButton(onClick = onBack) {
++                Icon(
++                    imageVector = ImageVector.vectorResource(R.drawable.ic_back),
++                    contentDescription = "Volver",
++                    tint = MaterialTheme.colorScheme.onBackground
++                )
++            }
++            Text(
++                text = "Permisos",
++                style = MaterialTheme.typography.headlineSmall,
++                color = MaterialTheme.colorScheme.onBackground
++            )
++        }
++
++        Card(
++            shape = RoundedCornerShape(16.dp),
++            colors = CardDefaults.cardColors(containerColor = SurfaceRaised),
++            border = BorderStroke(1.dp, BorderHairline),
++            modifier = Modifier.fillMaxWidth()
++        ) {
++            Column {
++                permissions.forEachIndexed { index, status ->
++                    PermissionRow(
++                        status = status,
++                        onClick = {
++                            if (status.state == PermissionState.PENDING) {
++                                context.startActivity(permissionSettingsIntent(context, status.permission))
++                            }
++                        }
++                    )
++                    if (index < permissions.lastIndex) {
++                        HorizontalDivider(
++                            color = BorderHairline,
++                            modifier = Modifier.padding(horizontal = 16.dp)
++                        )
++                    }
++                }
++            }
++        }
++    }
++}
++
++@Composable
++private fun PermissionRow(
++    status: PermissionStatus,
++    onClick: () -> Unit
++) {
++    val pending = status.state == PermissionState.PENDING
++    Row(
++        modifier = Modifier
++            .fillMaxWidth()
++            .clickable(enabled = pending, onClick = onClick)
++            .padding(horizontal = 16.dp, vertical = 16.dp),
++        verticalAlignment = Alignment.CenterVertically
++    ) {
++        Column(modifier = Modifier.weight(1f)) {
++            Text(
++                text = when (status.permission) {
++                    Permission.OVERLAY -> "Permiso de overlay"
++                    Permission.NOTIFICATIONS -> "Permiso de notificaciones"
++                },
++                style = MaterialTheme.typography.bodyLarge,
++                color = MaterialTheme.colorScheme.onBackground
++            )
++            Text(
++                text = if (pending) {
++                    "Falta el permiso. Tócalo para abrir Ajustes."
++                } else {
++                    "Concedido"
++                },
++                style = MaterialTheme.typography.bodySmall,
++                color = if (pending) MaterialTheme.colorScheme.onSurfaceVariant else Accent
++            )
++        }
++        Spacer(modifier = Modifier.size(8.dp))
++        Canvas(modifier = Modifier.size(8.dp)) {
++            drawCircle(color = if (pending) InkDisabled else Accent)
++        }
++    }
++}
++
++private fun permissionSettingsIntent(context: Context, permission: Permission): Intent =
++    when (permission) {
++        Permission.OVERLAY -> Intent(
++            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
++            Uri.parse("package:${context.packageName}")
++        )
++        Permission.NOTIFICATIONS -> Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
++            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
++    }
+diff --git a/app/src/main/java/com/stayalert/ui/settings/SettingsViewModel.kt b/app/src/main/java/com/stayalert/ui/settings/SettingsViewModel.kt
+new file mode 100644
+index 0000000..5f96402
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/ui/settings/SettingsViewModel.kt
+@@ -0,0 +1,34 @@
++package com.stayalert.ui.settings
++
++import androidx.lifecycle.ViewModel
++import androidx.lifecycle.ViewModelProvider
++import com.stayalert.data.PermissionAuditor
++import com.stayalert.data.PermissionStatus
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++
++class SettingsViewModel(
++    private val permissionAuditor: PermissionAuditor
++) : ViewModel() {
++
++    private val _permissions = MutableStateFlow<List<PermissionStatus>>(emptyList())
++    val permissions: StateFlow<List<PermissionStatus>> = _permissions
++
++    init {
++        refresh()
++    }
++
++    fun refresh() {
++        _permissions.value = permissionAuditor.audit()
++    }
++
++    class Factory(
++        private val permissionAuditor: PermissionAuditor
++    ) : ViewModelProvider.Factory {
++        @Suppress("UNCHECKED_CAST")
++        override fun <T : ViewModel> create(modelClass: Class<T>): T {
++            require(modelClass.isAssignableFrom(SettingsViewModel::class.java))
++            return SettingsViewModel(permissionAuditor) as T
++        }
++    }
++}
+diff --git a/app/src/main/res/drawable/ic_back.xml b/app/src/main/res/drawable/ic_back.xml
+new file mode 100644
+index 0000000..1af6311
+--- /dev/null
++++ b/app/src/main/res/drawable/ic_back.xml
+@@ -0,0 +1,10 @@
++<?xml version="1.0" encoding="utf-8"?>
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp"
++    android:height="24dp"
++    android:viewportWidth="24"
++    android:viewportHeight="24">
++    <path
++        android:fillColor="#FFFFFFFF"
++        android:pathData="M20,11H7.83l5.59,-5.59L12,4l-8,8l8,8l1.41,-1.41L7.83,13H20V11z" />
++</vector>
+diff --git a/app/src/main/res/drawable/ic_settings.xml b/app/src/main/res/drawable/ic_settings.xml
+new file mode 100644
+index 0000000..fb5f434
+--- /dev/null
++++ b/app/src/main/res/drawable/ic_settings.xml
+@@ -0,0 +1,10 @@
++<?xml version="1.0" encoding="utf-8"?>
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp"
++    android:height="24dp"
++    android:viewportWidth="24"
++    android:viewportHeight="24">
++    <path
++        android:fillColor="#FFFFFFFF"
++        android:pathData="M19.14,12.94c0.04,-0.3 0.06,-0.61 0.06,-0.94c0,-0.32 -0.02,-0.64 -0.07,-0.94l2.03,-1.58c0.18,-0.14 0.23,-0.41 0.12,-0.61l-1.92,-3.32c-0.12,-0.22 -0.37,-0.29 -0.59,-0.22l-2.39,0.96c-0.5,-0.38 -1.03,-0.7 -1.62,-0.94L14.4,2.81c-0.04,-0.24 -0.24,-0.41 -0.48,-0.41h-3.84c-0.24,0 -0.43,0.17 -0.47,0.41L9.25,5.35C8.66,5.59 8.12,5.92 7.63,6.29L5.24,5.33c-0.22,-0.08 -0.47,0 -0.59,0.22L2.74,8.87C2.62,9.08 2.66,9.34 2.86,9.48l2.03,1.58C4.84,11.36 4.8,11.69 4.8,12s0.02,0.64 0.07,0.94l-2.03,1.58c-0.18,0.14 -0.23,0.41 -0.12,0.61l1.92,3.32c0.12,0.22 0.37,0.29 0.59,0.22l2.39,-0.96c0.5,0.38 1.03,0.7 1.62,0.94l0.36,2.54c0.05,0.24 0.24,0.41 0.48,0.41h3.84c0.24,0 0.44,-0.17 0.47,-0.41l0.36,-2.54c0.59,-0.24 1.13,-0.56 1.62,-0.94l2.39,0.96c0.22,0.08 0.47,0 0.59,-0.22l1.92,-3.32c0.12,-0.22 0.07,-0.47 -0.12,-0.61L19.14,12.94zM12,15.6c-1.98,0 -3.6,-1.62 -3.6,-3.6s1.62,-3.6 3.6,-3.6s3.6,1.62 3.6,3.6S13.98,15.6 12,15.6z" />
++</vector>
+diff --git a/app/src/test/java/com/stayalert/data/SystemPermissionAuditorTest.kt b/app/src/test/java/com/stayalert/data/SystemPermissionAuditorTest.kt
+new file mode 100644
+index 0000000..9057785
+--- /dev/null
++++ b/app/src/test/java/com/stayalert/data/SystemPermissionAuditorTest.kt
+@@ -0,0 +1,40 @@
++package com.stayalert.data
++
++import android.content.Context
++import androidx.test.core.app.ApplicationProvider
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++import org.junit.runner.RunWith
++import org.robolectric.RobolectricTestRunner
++import org.robolectric.annotation.Config
++
++@RunWith(RobolectricTestRunner::class)
++@Config(sdk = [34])
++class SystemPermissionAuditorTest {
++
++    private val context: Context = ApplicationProvider.getApplicationContext()
++
++    @Test
++    fun `canDrawOverlays refleja el estado del sistema`() {
++        val auditor = SystemPermissionAuditor(context)
++        assertFalse(auditor.canDrawOverlays())
++    }
++
++    @Test
++    fun `areNotificationsEnabled refleja el estado del sistema`() {
++        val auditor = SystemPermissionAuditor(context)
++        assertTrue(auditor.areNotificationsEnabled())
++    }
++
++    @Test
++    fun `audit devuelve ambos permisos`() {
++        val auditor = SystemPermissionAuditor(context)
++        val result = auditor.audit()
++
++        assertEquals(2, result.size)
++        assertEquals(Permission.OVERLAY, result[0].permission)
++        assertEquals(Permission.NOTIFICATIONS, result[1].permission)
++    }
++}
+diff --git a/app/src/test/java/com/stayalert/ui/MainScreenTest.kt b/app/src/test/java/com/stayalert/ui/MainScreenTest.kt
+index 61b1852..f71af99 100644
+--- a/app/src/test/java/com/stayalert/ui/MainScreenTest.kt
++++ b/app/src/test/java/com/stayalert/ui/MainScreenTest.kt
+@@ -49,7 +49,7 @@ class MainScreenTest {
+         try {
+             composeRule.setContent {
+                 StayAlertTheme {
+-                    MainScreen(viewModel = MainViewModel(FakeSettingsRepository(false)))
++                    MainScreen(viewModel = MainViewModel(FakeSettingsRepository(false)), onOpenSettings = {})
+                 }
+             }
+ 
+@@ -68,7 +68,7 @@ class MainScreenTest {
+             val fakeRepository = FakeSettingsRepository(false)
+             composeRule.setContent {
+                 StayAlertTheme {
+-                    MainScreen(viewModel = MainViewModel(fakeRepository))
++                    MainScreen(viewModel = MainViewModel(fakeRepository), onOpenSettings = {})
+                 }
+             }
+ 
+diff --git a/app/src/test/java/com/stayalert/ui/settings/SettingsViewModelTest.kt b/app/src/test/java/com/stayalert/ui/settings/SettingsViewModelTest.kt
+new file mode 100644
+index 0000000..3a59bf6
+--- /dev/null
++++ b/app/src/test/java/com/stayalert/ui/settings/SettingsViewModelTest.kt
+@@ -0,0 +1,46 @@
++package com.stayalert.ui.settings
++
++import com.stayalert.data.Permission
++import com.stayalert.data.PermissionAuditor
++import com.stayalert.data.PermissionState
++import com.stayalert.data.PermissionStatus
++import org.junit.Assert.assertEquals
++import org.junit.Test
++
++class SettingsViewModelTest {
++
++    private class FakePermissionAuditor(
++        private val overlayGranted: Boolean,
++        private val notificationsGranted: Boolean
++    ) : PermissionAuditor {
++        override fun canDrawOverlays(): Boolean = overlayGranted
++        override fun areNotificationsEnabled(): Boolean = notificationsGranted
++        override fun audit(): List<PermissionStatus> = listOf(
++            PermissionStatus(Permission.OVERLAY, if (overlayGranted) PermissionState.GRANTED else PermissionState.PENDING),
++            PermissionStatus(Permission.NOTIFICATIONS, if (notificationsGranted) PermissionState.GRANTED else PermissionState.PENDING)
++        )
++    }
++
++    @Test
++    fun `refresh audita los permisos`() {
++        val auditor = FakePermissionAuditor(overlayGranted = true, notificationsGranted = false)
++        val viewModel = SettingsViewModel(auditor)
++
++        val expected = listOf(
++            PermissionStatus(Permission.OVERLAY, PermissionState.GRANTED),
++            PermissionStatus(Permission.NOTIFICATIONS, PermissionState.PENDING)
++        )
++        assertEquals(expected, viewModel.permissions.value)
++    }
++
++    @Test
++    fun `refresh re-audita tras cambios`() {
++        val auditor = FakePermissionAuditor(overlayGranted = false, notificationsGranted = false)
++        val viewModel = SettingsViewModel(auditor)
++        assertEquals(PermissionState.PENDING, viewModel.permissions.value[0].state)
++
++        val updated = FakePermissionAuditor(overlayGranted = true, notificationsGranted = false)
++        val viewModel2 = SettingsViewModel(updated)
++        assertEquals(PermissionState.GRANTED, viewModel2.permissions.value[0].state)
++    }
++}
