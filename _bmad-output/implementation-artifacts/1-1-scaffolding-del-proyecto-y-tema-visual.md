@@ -1,6 +1,6 @@
 # Story 1.1: Scaffolding del proyecto y tema visual
 
-Status: review
+Status: done
 
 ## Story
 
@@ -148,3 +148,25 @@ deepseek-v4-flash:0731 (opencode)
 - `app/src/main/java/com/stayalert/ui/theme/Theme.kt` (nuevo)
 - `app/src/test/java/com/stayalert/ThemeTokensTest.kt` (nuevo)
 - `.github/workflows/ci.yml` (nuevo)
+
+## Review Findings
+
+### decision-needed
+
+(None)
+
+### patch
+
+- [x] [Review][Patch] `MainActivity` omits `enableEdgeToEdge()` [`app/src/main/java/com/stayalert/ui/MainActivity.kt:188`] — fixed
+- [x] [Review][Patch] Activity theme declaration is redundant [`app/src/main/AndroidManifest.xml:153,158`] — fixed
+- [x] [Review][Patch] `.gitignore` missing `.kotlin/` [`.gitignore`] — fixed
+
+### defer
+
+- [x] [Review][Defer] `SurfaceOverlay` mapped to `surfaceContainerLowest` is semantically risky [`app/src/main/java/com/stayalert/ui/theme/Theme.kt:286`] — deferred, pre-existing (scaffolding; resolve when overlay implemented)
+- [x] [Review][Defer] `Warning` color token is not exposed in the theme [`app/src/main/java/com/stayalert/ui/theme/Color.kt:232`, `Theme.kt:265-287`] — deferred, pre-existing (no warning states yet)
+- [x] [Review][Defer] `themes.xml` may show a light splash before Compose loads [`app/src/main/res/values/themes.xml:2`] — deferred, pre-existing (resolve when final launch theme polished)
+
+---
+
+**Code review report:** `_bmad-output/implementation-artifacts/code-review-1.1/findings-report.md`
