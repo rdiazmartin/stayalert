@@ -18,10 +18,22 @@ class MainViewModelTest {
 
     private class FakeSettingsRepository(initial: Boolean = false) : SettingsRepository {
         private val _noticeAccepted = MutableStateFlow(initial)
+        private val _targetPackage = MutableStateFlow("com.microsoft.teams")
+        private val _targetActivity = MutableStateFlow("com.microsoft.teams.activities.MainActivity")
         override val noticeAccepted: StateFlow<Boolean> = _noticeAccepted
+        override val targetPackage: StateFlow<String> = _targetPackage
+        override val targetActivity: StateFlow<String> = _targetActivity
 
         override suspend fun setNoticeAccepted(value: Boolean) {
             _noticeAccepted.value = value
+        }
+
+        override suspend fun setTargetPackage(value: String) {
+            _targetPackage.value = value
+        }
+
+        override suspend fun setTargetActivity(value: String) {
+            _targetActivity.value = value
         }
     }
 

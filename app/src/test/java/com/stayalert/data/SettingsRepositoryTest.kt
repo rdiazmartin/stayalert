@@ -7,6 +7,7 @@ import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -37,5 +38,25 @@ class SettingsRepositoryTest {
         val repository = createRepository()
         repository.setNoticeAccepted(true)
         assertTrue(repository.noticeAccepted.first())
+    }
+
+    @Test
+    fun `targetPackage usa el default de Teams`() = runTest {
+        val repository = createRepository()
+        assertEquals(DEFAULT_TARGET_PACKAGE, repository.targetPackage.first())
+    }
+
+    @Test
+    fun `setTargetPackage persiste el valor`() = runTest {
+        val repository = createRepository()
+        repository.setTargetPackage("com.example.app")
+        assertEquals("com.example.app", repository.targetPackage.first())
+    }
+
+    @Test
+    fun `setTargetActivity persiste el valor`() = runTest {
+        val repository = createRepository()
+        repository.setTargetActivity("com.example.app.MainActivity")
+        assertEquals("com.example.app.MainActivity", repository.targetActivity.first())
     }
 }

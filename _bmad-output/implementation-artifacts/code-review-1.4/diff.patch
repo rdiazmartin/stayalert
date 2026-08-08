@@ -1,0 +1,606 @@
+diff --git a/_bmad-output/implementation-artifacts/sprint-status.yaml b/_bmad-output/implementation-artifacts/sprint-status.yaml
+index b973763..b79b6a8 100644
+--- a/_bmad-output/implementation-artifacts/sprint-status.yaml
++++ b/_bmad-output/implementation-artifacts/sprint-status.yaml
+@@ -52,7 +52,7 @@ development_status:
+   1-1-scaffolding-del-proyecto-y-tema-visual: done
+   1-2-aviso-de-uso-responsable: done
+   1-3-auditoria-y-guiado-de-permisos: done
+-  1-4-configuracion-de-la-app-objetivo-y-exencion-de-bateria: backlog
++  1-4-configuracion-de-la-app-objetivo-y-exencion-de-bateria: review
+   epic-1-retrospective: optional
+   epic-2: backlog
+   2-1-nucleo-de-sesion: backlog
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index c19f9df..0b92102 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -1,6 +1,8 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+ 
++    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
++
+     <queries>
+         <package android:name="com.microsoft.teams" />
+     </queries>
+diff --git a/app/src/main/java/com/stayalert/data/AppInstalledChecker.kt b/app/src/main/java/com/stayalert/data/AppInstalledChecker.kt
+new file mode 100644
+index 0000000..881c4d0
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/data/AppInstalledChecker.kt
+@@ -0,0 +1,5 @@
++package com.stayalert.data
++
++interface AppInstalledChecker {
++    fun isInstalled(packageName: String): Boolean
++}
+diff --git a/app/src/main/java/com/stayalert/data/BatteryOptimizationChecker.kt b/app/src/main/java/com/stayalert/data/BatteryOptimizationChecker.kt
+new file mode 100644
+index 0000000..8708917
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/data/BatteryOptimizationChecker.kt
+@@ -0,0 +1,5 @@
++package com.stayalert.data
++
++interface BatteryOptimizationChecker {
++    fun isIgnoringBatteryOptimizations(): Boolean
++}
+diff --git a/app/src/main/java/com/stayalert/data/DataStoreSettingsRepository.kt b/app/src/main/java/com/stayalert/data/DataStoreSettingsRepository.kt
+index 456f601..1520c71 100644
+--- a/app/src/main/java/com/stayalert/data/DataStoreSettingsRepository.kt
++++ b/app/src/main/java/com/stayalert/data/DataStoreSettingsRepository.kt
+@@ -10,6 +10,9 @@ import kotlinx.coroutines.flow.map
+ 
+ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
+ 
++const val DEFAULT_TARGET_PACKAGE = "com.microsoft.teams"
++const val DEFAULT_TARGET_ACTIVITY = "com.microsoft.teams.activities.MainActivity"
++
+ class DataStoreSettingsRepository(
+     context: Context,
+     private val dataStore: DataStore<Preferences> = context.applicationContext.dataStore
+@@ -20,9 +23,31 @@ class DataStoreSettingsRepository(
+             preferences[SettingsKeys.NOTICE_ACCEPTED] ?: false
+         }
+ 
++    override val targetPackage: Flow<String> = dataStore.data
++        .map { preferences ->
++            preferences[SettingsKeys.TARGET_PACKAGE] ?: DEFAULT_TARGET_PACKAGE
++        }
++
++    override val targetActivity: Flow<String> = dataStore.data
++        .map { preferences ->
++            preferences[SettingsKeys.TARGET_ACTIVITY] ?: DEFAULT_TARGET_ACTIVITY
++        }
++
+     override suspend fun setNoticeAccepted(value: Boolean) {
+         dataStore.edit { preferences ->
+             preferences[SettingsKeys.NOTICE_ACCEPTED] = value
+         }
+     }
++
++    override suspend fun setTargetPackage(value: String) {
++        dataStore.edit { preferences ->
++            preferences[SettingsKeys.TARGET_PACKAGE] = value
++        }
++    }
++
++    override suspend fun setTargetActivity(value: String) {
++        dataStore.edit { preferences ->
++            preferences[SettingsKeys.TARGET_ACTIVITY] = value
++        }
++    }
+ }
+diff --git a/app/src/main/java/com/stayalert/data/SettingsRepository.kt b/app/src/main/java/com/stayalert/data/SettingsRepository.kt
+index 53c5b30..fbfdaf2 100644
+--- a/app/src/main/java/com/stayalert/data/SettingsRepository.kt
++++ b/app/src/main/java/com/stayalert/data/SettingsRepository.kt
+@@ -4,5 +4,9 @@ import kotlinx.coroutines.flow.Flow
+ 
+ interface SettingsRepository {
+     val noticeAccepted: Flow<Boolean>
++    val targetPackage: Flow<String>
++    val targetActivity: Flow<String>
+     suspend fun setNoticeAccepted(value: Boolean)
++    suspend fun setTargetPackage(value: String)
++    suspend fun setTargetActivity(value: String)
+ }
+diff --git a/app/src/main/java/com/stayalert/data/SystemAppInstalledChecker.kt b/app/src/main/java/com/stayalert/data/SystemAppInstalledChecker.kt
+new file mode 100644
+index 0000000..d39d3d6
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/data/SystemAppInstalledChecker.kt
+@@ -0,0 +1,15 @@
++package com.stayalert.data
++
++import android.content.Context
++import android.content.pm.PackageManager
++
++class SystemAppInstalledChecker(private val context: Context) : AppInstalledChecker {
++
++    override fun isInstalled(packageName: String): Boolean =
++        try {
++            context.packageManager.getPackageInfo(packageName, 0)
++            true
++        } catch (e: PackageManager.NameNotFoundException) {
++            false
++        }
++}
+diff --git a/app/src/main/java/com/stayalert/data/SystemBatteryOptimizationChecker.kt b/app/src/main/java/com/stayalert/data/SystemBatteryOptimizationChecker.kt
+new file mode 100644
+index 0000000..b59b982
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/data/SystemBatteryOptimizationChecker.kt
+@@ -0,0 +1,12 @@
++package com.stayalert.data
++
++import android.content.Context
++import android.os.PowerManager
++
++class SystemBatteryOptimizationChecker(private val context: Context) : BatteryOptimizationChecker {
++
++    override fun isIgnoringBatteryOptimizations(): Boolean {
++        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
++        return powerManager.isIgnoringBatteryOptimizations(context.packageName)
++    }
++}
+diff --git a/app/src/main/java/com/stayalert/ui/MainActivity.kt b/app/src/main/java/com/stayalert/ui/MainActivity.kt
+index 43bf86e..ee4155a 100644
+--- a/app/src/main/java/com/stayalert/ui/MainActivity.kt
++++ b/app/src/main/java/com/stayalert/ui/MainActivity.kt
+@@ -31,6 +31,8 @@ import androidx.compose.ui.unit.dp
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
+ import androidx.lifecycle.viewmodel.compose.viewModel
+ import com.stayalert.data.DataStoreSettingsRepository
++import com.stayalert.data.SystemAppInstalledChecker
++import com.stayalert.data.SystemBatteryOptimizationChecker
+ import com.stayalert.data.SystemPermissionAuditor
+ import com.stayalert.ui.components.ResponsibleUseNotice
+ import com.stayalert.ui.settings.SettingsScreen
+@@ -53,6 +55,14 @@ class MainActivity : ComponentActivity() {
+         SystemPermissionAuditor(applicationContext)
+     }
+ 
++    private val appInstalledChecker by lazy {
++        SystemAppInstalledChecker(applicationContext)
++    }
++
++    private val batteryOptimizationChecker by lazy {
++        SystemBatteryOptimizationChecker(applicationContext)
++    }
++
+     override fun onCreate(savedInstanceState: Bundle?) {
+         enableEdgeToEdge()
+         super.onCreate(savedInstanceState)
+@@ -62,7 +72,12 @@ class MainActivity : ComponentActivity() {
+                     factory = MainViewModel.Factory(settingsRepository)
+                 )
+                 val settingsViewModel: SettingsViewModel = viewModel(
+-                    factory = SettingsViewModel.Factory(permissionAuditor)
++                    factory = SettingsViewModel.Factory(
++                        permissionAuditor,
++                        settingsRepository,
++                        appInstalledChecker,
++                        batteryOptimizationChecker
++                    )
+                 )
+                 var showSettings by remember { mutableStateOf(false) }
+ 
+diff --git a/app/src/main/java/com/stayalert/ui/settings/SettingsScreen.kt b/app/src/main/java/com/stayalert/ui/settings/SettingsScreen.kt
+index 5062000..c9df322 100644
+--- a/app/src/main/java/com/stayalert/ui/settings/SettingsScreen.kt
++++ b/app/src/main/java/com/stayalert/ui/settings/SettingsScreen.kt
+@@ -24,6 +24,7 @@ import androidx.compose.material3.HorizontalDivider
+ import androidx.compose.material3.Icon
+ import androidx.compose.material3.IconButton
+ import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.OutlinedTextField
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.DisposableEffect
+@@ -55,6 +56,10 @@ fun SettingsScreen(
+     onBack: () -> Unit
+ ) {
+     val permissions by viewModel.permissions.collectAsStateWithLifecycle()
++    val targetPackage by viewModel.targetPackage.collectAsStateWithLifecycle()
++    val targetActivity by viewModel.targetActivity.collectAsStateWithLifecycle()
++    val batteryExempt by viewModel.batteryExempt.collectAsStateWithLifecycle()
++    val targetInstalled by viewModel.targetInstalled.collectAsStateWithLifecycle()
+     val context = LocalContext.current
+     val lifecycleOwner = LocalLifecycleOwner.current
+ 
+@@ -86,12 +91,18 @@ fun SettingsScreen(
+                 )
+             }
+             Text(
+-                text = "Permisos",
++                text = "Configuración",
+                 style = MaterialTheme.typography.headlineSmall,
+                 color = MaterialTheme.colorScheme.onBackground
+             )
+         }
+ 
++        Text(
++            text = "Permisos",
++            style = MaterialTheme.typography.bodyLarge,
++            color = MaterialTheme.colorScheme.onBackground
++        )
++
+         Card(
+             shape = RoundedCornerShape(16.dp),
+             colors = CardDefaults.cardColors(containerColor = SurfaceRaised),
+@@ -121,6 +132,94 @@ fun SettingsScreen(
+                 }
+             }
+         }
++
++        Text(
++            text = "App objetivo",
++            style = MaterialTheme.typography.bodyLarge,
++            color = MaterialTheme.colorScheme.onBackground
++        )
++
++        Card(
++            shape = RoundedCornerShape(16.dp),
++            colors = CardDefaults.cardColors(containerColor = SurfaceRaised),
++            border = BorderStroke(1.dp, BorderHairline),
++            modifier = Modifier.fillMaxWidth()
++        ) {
++            Column(modifier = Modifier.padding(16.dp)) {
++                OutlinedTextField(
++                    value = targetPackage,
++                    onValueChange = viewModel::setTargetPackage,
++                    label = { Text("Paquete") },
++                    singleLine = true,
++                    modifier = Modifier.fillMaxWidth()
++                )
++                Spacer(modifier = Modifier.height(8.dp))
++                OutlinedTextField(
++                    value = targetActivity,
++                    onValueChange = viewModel::setTargetActivity,
++                    label = { Text("Actividad principal") },
++                    singleLine = true,
++                    modifier = Modifier.fillMaxWidth()
++                )
++                if (!targetInstalled) {
++                    Spacer(modifier = Modifier.height(8.dp))
++                    Text(
++                        text = "La app objetivo no está instalada.",
++                        style = MaterialTheme.typography.bodySmall,
++                        color = MaterialTheme.colorScheme.error
++                    )
++                }
++            }
++        }
++
++        Text(
++            text = "Batería",
++            style = MaterialTheme.typography.bodyLarge,
++            color = MaterialTheme.colorScheme.onBackground
++        )
++
++        Card(
++            shape = RoundedCornerShape(16.dp),
++            colors = CardDefaults.cardColors(containerColor = SurfaceRaised),
++            border = BorderStroke(1.dp, BorderHairline),
++            modifier = Modifier.fillMaxWidth()
++        ) {
++            Row(
++                modifier = Modifier
++                    .fillMaxWidth()
++                    .clickable {
++                        runCatching {
++                            context.startActivity(
++                                Intent(
++                                    Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
++                                    Uri.parse("package:${context.packageName}")
++                                )
++                            )
++                        }.onFailure { e ->
++                            android.util.Log.e("SettingsScreen", "No se pudo abrir exención de batería", e)
++                        }
++                    }
++                    .padding(horizontal = 16.dp, vertical = 16.dp),
++                verticalAlignment = Alignment.CenterVertically
++            ) {
++                Column(modifier = Modifier.weight(1f)) {
++                    Text(
++                        text = "Exención de batería",
++                        style = MaterialTheme.typography.bodyLarge,
++                        color = MaterialTheme.colorScheme.onBackground
++                    )
++                    Text(
++                        text = if (batteryExempt) "Exento" else "No exento. Tócalo para abrir Ajustes.",
++                        style = MaterialTheme.typography.bodySmall,
++                        color = if (batteryExempt) Accent else MaterialTheme.colorScheme.onSurfaceVariant
++                    )
++                }
++                Spacer(modifier = Modifier.size(8.dp))
++                Canvas(modifier = Modifier.size(8.dp)) {
++                    drawCircle(color = if (batteryExempt) Accent else InkDisabled)
++                }
++            }
++        }
+     }
+ }
+ 
+diff --git a/app/src/main/java/com/stayalert/ui/settings/SettingsViewModel.kt b/app/src/main/java/com/stayalert/ui/settings/SettingsViewModel.kt
+index 5f96402..b95702c 100644
+--- a/app/src/main/java/com/stayalert/ui/settings/SettingsViewModel.kt
++++ b/app/src/main/java/com/stayalert/ui/settings/SettingsViewModel.kt
+@@ -2,33 +2,78 @@ package com.stayalert.ui.settings
+ 
+ import androidx.lifecycle.ViewModel
+ import androidx.lifecycle.ViewModelProvider
++import androidx.lifecycle.viewModelScope
++import com.stayalert.data.AppInstalledChecker
++import com.stayalert.data.BatteryOptimizationChecker
+ import com.stayalert.data.PermissionAuditor
+ import com.stayalert.data.PermissionStatus
++import com.stayalert.data.SettingsRepository
+ import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.SharingStarted
+ import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.stateIn
++import kotlinx.coroutines.launch
+ 
+ class SettingsViewModel(
+-    private val permissionAuditor: PermissionAuditor
++    private val permissionAuditor: PermissionAuditor,
++    private val settingsRepository: SettingsRepository,
++    private val appInstalledChecker: AppInstalledChecker,
++    private val batteryOptimizationChecker: BatteryOptimizationChecker
+ ) : ViewModel() {
+ 
+     private val _permissions = MutableStateFlow<List<PermissionStatus>>(emptyList())
+     val permissions: StateFlow<List<PermissionStatus>> = _permissions
+ 
++    val targetPackage: StateFlow<String> = settingsRepository.targetPackage
++        .stateIn(viewModelScope, SharingStarted.Eagerly, "")
++
++    val targetActivity: StateFlow<String> = settingsRepository.targetActivity
++        .stateIn(viewModelScope, SharingStarted.Eagerly, "")
++
++    private val _batteryExempt = MutableStateFlow(false)
++    val batteryExempt: StateFlow<Boolean> = _batteryExempt
++
++    private val _targetInstalled = MutableStateFlow(false)
++    val targetInstalled: StateFlow<Boolean> = _targetInstalled
++
+     init {
+         refresh()
+     }
+ 
+     fun refresh() {
+         _permissions.value = permissionAuditor.audit()
++        _batteryExempt.value = batteryOptimizationChecker.isIgnoringBatteryOptimizations()
++        _targetInstalled.value = appInstalledChecker.isInstalled(targetPackage.value)
++    }
++
++    fun setTargetPackage(value: String) {
++        viewModelScope.launch {
++            settingsRepository.setTargetPackage(value)
++            _targetInstalled.value = appInstalledChecker.isInstalled(value)
++        }
++    }
++
++    fun setTargetActivity(value: String) {
++        viewModelScope.launch {
++            settingsRepository.setTargetActivity(value)
++        }
+     }
+ 
+     class Factory(
+-        private val permissionAuditor: PermissionAuditor
++        private val permissionAuditor: PermissionAuditor,
++        private val settingsRepository: SettingsRepository,
++        private val appInstalledChecker: AppInstalledChecker,
++        private val batteryOptimizationChecker: BatteryOptimizationChecker
+     ) : ViewModelProvider.Factory {
+         @Suppress("UNCHECKED_CAST")
+         override fun <T : ViewModel> create(modelClass: Class<T>): T {
+             require(modelClass.isAssignableFrom(SettingsViewModel::class.java))
+-            return SettingsViewModel(permissionAuditor) as T
++            return SettingsViewModel(
++                permissionAuditor,
++                settingsRepository,
++                appInstalledChecker,
++                batteryOptimizationChecker
++            ) as T
+         }
+     }
+ }
+diff --git a/app/src/test/java/com/stayalert/data/SettingsRepositoryTest.kt b/app/src/test/java/com/stayalert/data/SettingsRepositoryTest.kt
+index f8275ae..dabd17d 100644
+--- a/app/src/test/java/com/stayalert/data/SettingsRepositoryTest.kt
++++ b/app/src/test/java/com/stayalert/data/SettingsRepositoryTest.kt
+@@ -7,6 +7,7 @@ import androidx.test.core.app.ApplicationProvider
+ import kotlinx.coroutines.ExperimentalCoroutinesApi
+ import kotlinx.coroutines.flow.first
+ import kotlinx.coroutines.test.runTest
++import org.junit.Assert.assertEquals
+ import org.junit.Assert.assertFalse
+ import org.junit.Assert.assertTrue
+ import org.junit.Test
+@@ -38,4 +39,24 @@ class SettingsRepositoryTest {
+         repository.setNoticeAccepted(true)
+         assertTrue(repository.noticeAccepted.first())
+     }
++
++    @Test
++    fun `targetPackage usa el default de Teams`() = runTest {
++        val repository = createRepository()
++        assertEquals(DEFAULT_TARGET_PACKAGE, repository.targetPackage.first())
++    }
++
++    @Test
++    fun `setTargetPackage persiste el valor`() = runTest {
++        val repository = createRepository()
++        repository.setTargetPackage("com.example.app")
++        assertEquals("com.example.app", repository.targetPackage.first())
++    }
++
++    @Test
++    fun `setTargetActivity persiste el valor`() = runTest {
++        val repository = createRepository()
++        repository.setTargetActivity("com.example.app.MainActivity")
++        assertEquals("com.example.app.MainActivity", repository.targetActivity.first())
++    }
+ }
+diff --git a/app/src/test/java/com/stayalert/ui/MainScreenTest.kt b/app/src/test/java/com/stayalert/ui/MainScreenTest.kt
+index f71af99..694fa13 100644
+--- a/app/src/test/java/com/stayalert/ui/MainScreenTest.kt
++++ b/app/src/test/java/com/stayalert/ui/MainScreenTest.kt
+@@ -35,11 +35,23 @@ class MainScreenTest {
+ 
+     private class FakeSettingsRepository(initial: Boolean = false) : SettingsRepository {
+         private val _noticeAccepted = MutableStateFlow(initial)
++        private val _targetPackage = MutableStateFlow("com.microsoft.teams")
++        private val _targetActivity = MutableStateFlow("com.microsoft.teams.activities.MainActivity")
+         override val noticeAccepted: StateFlow<Boolean> = _noticeAccepted
++        override val targetPackage: StateFlow<String> = _targetPackage
++        override val targetActivity: StateFlow<String> = _targetActivity
+ 
+         override suspend fun setNoticeAccepted(value: Boolean) {
+             _noticeAccepted.value = value
+         }
++
++        override suspend fun setTargetPackage(value: String) {
++            _targetPackage.value = value
++        }
++
++        override suspend fun setTargetActivity(value: String) {
++            _targetActivity.value = value
++        }
+     }
+ 
+     @SuppressLint("ViewModelConstructorInComposable")
+diff --git a/app/src/test/java/com/stayalert/ui/MainViewModelTest.kt b/app/src/test/java/com/stayalert/ui/MainViewModelTest.kt
+index ddb0561..4dca79f 100644
+--- a/app/src/test/java/com/stayalert/ui/MainViewModelTest.kt
++++ b/app/src/test/java/com/stayalert/ui/MainViewModelTest.kt
+@@ -18,11 +18,23 @@ class MainViewModelTest {
+ 
+     private class FakeSettingsRepository(initial: Boolean = false) : SettingsRepository {
+         private val _noticeAccepted = MutableStateFlow(initial)
++        private val _targetPackage = MutableStateFlow("com.microsoft.teams")
++        private val _targetActivity = MutableStateFlow("com.microsoft.teams.activities.MainActivity")
+         override val noticeAccepted: StateFlow<Boolean> = _noticeAccepted
++        override val targetPackage: StateFlow<String> = _targetPackage
++        override val targetActivity: StateFlow<String> = _targetActivity
+ 
+         override suspend fun setNoticeAccepted(value: Boolean) {
+             _noticeAccepted.value = value
+         }
++
++        override suspend fun setTargetPackage(value: String) {
++            _targetPackage.value = value
++        }
++
++        override suspend fun setTargetActivity(value: String) {
++            _targetActivity.value = value
++        }
+     }
+ 
+     @Test
+diff --git a/app/src/test/java/com/stayalert/ui/settings/SettingsViewModelTest.kt b/app/src/test/java/com/stayalert/ui/settings/SettingsViewModelTest.kt
+index 3a59bf6..cd6b32d 100644
+--- a/app/src/test/java/com/stayalert/ui/settings/SettingsViewModelTest.kt
++++ b/app/src/test/java/com/stayalert/ui/settings/SettingsViewModelTest.kt
+@@ -1,14 +1,34 @@
+ package com.stayalert.ui.settings
+ 
++import com.stayalert.data.AppInstalledChecker
++import com.stayalert.data.BatteryOptimizationChecker
+ import com.stayalert.data.Permission
+ import com.stayalert.data.PermissionAuditor
+ import com.stayalert.data.PermissionState
+ import com.stayalert.data.PermissionStatus
++import com.stayalert.data.SettingsRepository
++import kotlinx.coroutines.flow.Flow
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
+ import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
+ import org.junit.Test
+ 
+ class SettingsViewModelTest {
+ 
++    private class FakeSettingsRepository : SettingsRepository {
++        private val _noticeAccepted = MutableStateFlow(false)
++        private val _targetPackage = MutableStateFlow("com.microsoft.teams")
++        private val _targetActivity = MutableStateFlow("com.microsoft.teams.activities.MainActivity")
++        override val noticeAccepted: StateFlow<Boolean> = _noticeAccepted
++        override val targetPackage: StateFlow<String> = _targetPackage
++        override val targetActivity: StateFlow<String> = _targetActivity
++        override suspend fun setNoticeAccepted(value: Boolean) { _noticeAccepted.value = value }
++        override suspend fun setTargetPackage(value: String) { _targetPackage.value = value }
++        override suspend fun setTargetActivity(value: String) { _targetActivity.value = value }
++    }
++
+     private class FakePermissionAuditor(
+         private val overlayGranted: Boolean,
+         private val notificationsGranted: Boolean
+@@ -21,10 +41,29 @@ class SettingsViewModelTest {
+         )
+     }
+ 
++    private class FakeAppInstalledChecker(private val installed: Boolean) : AppInstalledChecker {
++        override fun isInstalled(packageName: String): Boolean = installed
++    }
++
++    private class FakeBatteryOptimizationChecker(private val exempt: Boolean) : BatteryOptimizationChecker {
++        override fun isIgnoringBatteryOptimizations(): Boolean = exempt
++    }
++
++    private fun createViewModel(
++        overlayGranted: Boolean = true,
++        notificationsGranted: Boolean = true,
++        installed: Boolean = true,
++        batteryExempt: Boolean = true
++    ): SettingsViewModel = SettingsViewModel(
++        permissionAuditor = FakePermissionAuditor(overlayGranted, notificationsGranted),
++        settingsRepository = FakeSettingsRepository(),
++        appInstalledChecker = FakeAppInstalledChecker(installed),
++        batteryOptimizationChecker = FakeBatteryOptimizationChecker(batteryExempt)
++    )
++
+     @Test
+     fun `refresh audita los permisos`() {
+-        val auditor = FakePermissionAuditor(overlayGranted = true, notificationsGranted = false)
+-        val viewModel = SettingsViewModel(auditor)
++        val viewModel = createViewModel(overlayGranted = true, notificationsGranted = false)
+ 
+         val expected = listOf(
+             PermissionStatus(Permission.OVERLAY, PermissionState.GRANTED),
+@@ -34,13 +73,20 @@ class SettingsViewModelTest {
+     }
+ 
+     @Test
+-    fun `refresh re-audita tras cambios`() {
+-        val auditor = FakePermissionAuditor(overlayGranted = false, notificationsGranted = false)
+-        val viewModel = SettingsViewModel(auditor)
+-        assertEquals(PermissionState.PENDING, viewModel.permissions.value[0].state)
+-
+-        val updated = FakePermissionAuditor(overlayGranted = true, notificationsGranted = false)
+-        val viewModel2 = SettingsViewModel(updated)
+-        assertEquals(PermissionState.GRANTED, viewModel2.permissions.value[0].state)
++    fun `refresh refleja el estado de bateria`() {
++        val viewModel = createViewModel(batteryExempt = false)
++        assertFalse(viewModel.batteryExempt.value)
++    }
++
++    @Test
++    fun `refresh refleja la instalacion de la app objetivo`() {
++        val viewModel = createViewModel(installed = false)
++        assertFalse(viewModel.targetInstalled.value)
++    }
++
++    @Test
++    fun `targetPackage expone el valor del repository`() {
++        val viewModel = createViewModel()
++        assertEquals("com.microsoft.teams", viewModel.targetPackage.value)
+     }
+ }

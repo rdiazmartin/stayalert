@@ -15,3 +15,8 @@
 
 - Navegación con `mutableStateOf` en vez de Navigation Compose [`app/src/main/java/com/stayalert/ui/MainActivity.kt:134`] — deferred; evaluar Navigation Compose cuando haya más pantallas (story 1.4 añadirá más configuración).
 - `SettingsViewModel.refresh()` no es idempotente ante recomposiciones [`app/src/main/java/com/stayalert/ui/settings/SettingsScreen.kt:297-305`] — deferred; no requiere acción (LocalLifecycleOwner es estable).
+
+## Deferred from: code review of 1-4-configuracion-de-la-app-objetivo-y-exencion-de-bateria.md (2026-08-09)
+
+- `DEFAULT_TARGET_ACTIVITY` hardcodeado como constante top-level [`app/src/main/java/com/stayalert/data/DataStoreSettingsRepository.kt:58`] — deferred; centralizar defaults con `TargetAppLauncher` (AD-3) en story 2.1.
+- `SettingsScreen` crece en complejidad [`app/src/main/java/com/stayalert/ui/settings/SettingsScreen.kt`] — deferred; extraer `TargetAppSection` y `BatterySection` como componentes cuando se añada más configuración.

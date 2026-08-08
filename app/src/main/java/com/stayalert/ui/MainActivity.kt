@@ -31,6 +31,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.stayalert.data.DataStoreSettingsRepository
+import com.stayalert.data.SystemAppInstalledChecker
+import com.stayalert.data.SystemBatteryOptimizationChecker
 import com.stayalert.data.SystemPermissionAuditor
 import com.stayalert.ui.components.ResponsibleUseNotice
 import com.stayalert.ui.settings.SettingsScreen
@@ -53,6 +55,14 @@ class MainActivity : ComponentActivity() {
         SystemPermissionAuditor(applicationContext)
     }
 
+    private val appInstalledChecker by lazy {
+        SystemAppInstalledChecker(applicationContext)
+    }
+
+    private val batteryOptimizationChecker by lazy {
+        SystemBatteryOptimizationChecker(applicationContext)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -62,7 +72,12 @@ class MainActivity : ComponentActivity() {
                     factory = MainViewModel.Factory(settingsRepository)
                 )
                 val settingsViewModel: SettingsViewModel = viewModel(
-                    factory = SettingsViewModel.Factory(permissionAuditor)
+                    factory = SettingsViewModel.Factory(
+                        permissionAuditor,
+                        settingsRepository,
+                        appInstalledChecker,
+                        batteryOptimizationChecker
+                    )
                 )
                 var showSettings by remember { mutableStateOf(false) }
 
