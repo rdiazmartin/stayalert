@@ -48,12 +48,12 @@ tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
 
 development_status:
-  epic-1: in-progress
+  epic-1: done
   1-1-scaffolding-del-proyecto-y-tema-visual: done
   1-2-aviso-de-uso-responsable: done
   1-3-auditoria-y-guiado-de-permisos: done
   1-4-configuracion-de-la-app-objetivo-y-exencion-de-bateria: done
-  epic-1-retrospective: optional
+  epic-1-retrospective: done
   epic-2: done
   2-1-nucleo-de-sesion: done
   2-2-despliegue-secuencial-y-overlay-de-aislamiento: done
@@ -61,4 +61,30 @@ development_status:
   2-4-servicio-en-primer-plano-y-notificaciones: done
   2-5-watchdog-de-sesion: done
   2-6-mock-de-teams-y-validacion-e2e: done
-  epic-2-retrospective: optional
+  epic-2-retrospective: done
+
+action_items:
+  - epic: 1
+    action: "Documentar en project-context.md el patrón @Config(sdk=[34]) para tests Robolectric con targetSdk 36+"
+    owner: "Amelia (Developer)"
+    status: open
+  - epic: 1
+    action: "Verificar el manifest antes de implementar: permisos y <queries> faltantes rompen funcionalidad silenciosamente (lección de 1.4 y 2.2)"
+    owner: "Amelia (Developer)"
+    status: open
+  - epic: 2
+    action: "Introducir AppContainer/ServiceLocator para el wiring de MainActivity (lateinit, SystemClock duplicado, callback estático) — señalado 3 veces en reviews"
+    owner: "Winston (System Architect)"
+    status: open
+  - epic: 2
+    action: "Usar siempre el Clock inyectable en implementaciones, nunca delay() real ni SystemClock directo (lección de 2.2 y 2.5)"
+    owner: "Amelia (Developer)"
+    status: open
+  - epic: 2
+    action: "Escribir tests E2E instrumentados temprano: 2.6 encontró 3 bugs que los unitarios no podían ver"
+    owner: "Murat (Test Architect)"
+    status: open
+  - epic: 2
+    action: "Completar validación manual SM-1a (mock resumed ≥ 8 h) y SM-2 (0 toques) — pendientes del E2E"
+    owner: "Roberto (Project Lead)"
+    status: open
