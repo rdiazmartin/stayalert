@@ -48,11 +48,15 @@ class SessionCommandHandlerTest {
 
     private class FakeOverlay(private val onEvent: (SessionEvent) -> Unit) : OverlayController {
         var shown = false
+        var hideThrows = false
         override fun show() {
             shown = true
             onEvent(SessionEvent.OverlayShown)
         }
-        override fun hide() { shown = false }
+        override suspend fun hide() {
+            shown = false
+            if (hideThrows) throw IllegalStateException("fallo simulado")
+        }
         override fun isVisible(): Boolean = shown
     }
 
@@ -69,11 +73,6 @@ class SessionCommandHandlerTest {
         targetAppLauncher = FakeLauncher(launcherSuccess),
         foregroundMonitor = FakeMonitor(monitorStatus),
         overlayController = overlay,
-        notifier = object : com.stayalert.data.Notifier {
-            override fun createChannels() {}
-            override fun showSessionNotification() {}
-            override fun showSessionEnded(reason: com.stayalert.domain.TerminationReason) {}
-        },
         watchdog = object : com.stayalert.domain.Watchdog {
             override fun start() {}
             override fun stop() {}
@@ -115,5 +114,32 @@ class SessionCommandHandlerTest {
         advanceTimeBy(SessionConstants.LAUNCH_DELAY_MS + 100)
         assertTrue(events.any { it is SessionEvent.LaunchFailed })
         assertEquals(false, overlay.shown)
+    }
+
+    @Test
+    fun `HideOverlay exitoso emite OverlayHidden`() = runTest(UnconfinedTestDispatcher()) {
+        val events = mutableListOf<SessionEvent>()
+        val overlay = FakeOverlay { events.add(it) }
+        val handler = createHandler(backgroundScope, events, overlay)
+        overlay.shown = true
+
+        handler.handle(SessionCommand.HideOverlay)
+        advanceTimeBy(100)
+        assertTrue(events.contains(SessionEvent.OverlayHidden))
+        assertTrue(events.none { it is SessionEvent.OverlayHideFailed })
+        assertEquals(false, overlay.shown)
+    }
+
+    @Test
+    fun `HideOverlay con fallo emite OverlayHideFailed`() = runTest(UnconfinedTestDispatcher()) {
+        val events = mutableListOf<SessionEvent>()
+        val overlay = FakeOverlay { events.add(it) }
+        overlay.hideThrows = true
+        val handler = createHandler(backgroundScope, events, overlay)
+
+        handler.handle(SessionCommand.HideOverlay)
+        advanceTimeBy(100)
+        assertTrue(events.any { it is SessionEvent.OverlayHideFailed })
+        assertTrue(events.none { it is SessionEvent.OverlayHidden })
     }
 }

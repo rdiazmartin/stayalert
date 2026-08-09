@@ -77,7 +77,7 @@ class SystemNotifier(private val context: Context) : Notifier {
         notificationManager.notify(NOTIFICATION_ID_EVENT, notification)
     }
 
-    fun cancelSessionNotification() {
+    override fun cancelSessionNotification() {
         notificationManager.cancel(NOTIFICATION_ID_SESSION)
     }
 

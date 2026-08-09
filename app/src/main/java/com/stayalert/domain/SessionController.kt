@@ -1,7 +1,9 @@
 package com.stayalert.domain
 
+import com.stayalert.data.Notifier
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -10,6 +12,7 @@ import kotlinx.coroutines.launch
 class SessionController(
     private val scope: CoroutineScope,
     private val validator: SessionValidator,
+    private val notifier: Notifier,
     private val onCommand: (SessionCommand) -> Unit
 ) {
 
@@ -20,6 +23,8 @@ class SessionController(
 
     private val _lastTerminationReason = MutableStateFlow<TerminationReason?>(null)
     val lastTerminationReason: StateFlow<TerminationReason?> = _lastTerminationReason.asStateFlow()
+
+    private var pendingTerminationReason: TerminationReason? = null
 
     init {
         scope.launch {
@@ -69,6 +74,8 @@ class SessionController(
             is SessionEvent.ServiceKilled,
             is SessionEvent.PatternDetected,
             is SessionEvent.OverlayShown,
+            is SessionEvent.OverlayHidden,
+            is SessionEvent.OverlayHideFailed,
             is SessionEvent.OverlayFailed,
             is SessionEvent.LaunchFailed,
             is SessionEvent.ScreenOff,
@@ -103,7 +110,9 @@ class SessionController(
             is SessionEvent.TargetCrashed,
             is SessionEvent.HideOverlayWindows,
             is SessionEvent.BatteryWarning,
-            is SessionEvent.BatteryCritical -> {
+            is SessionEvent.BatteryCritical,
+            is SessionEvent.OverlayHidden,
+            is SessionEvent.OverlayHideFailed -> {
                 // no-op: anomalías no admitidas en Lanzando (AD-9)
             }
         }
@@ -125,6 +134,8 @@ class SessionController(
                 // no-op: aviso de batería no termina la sesión (FR-16)
             }
             is SessionEvent.OverlayShown,
+            is SessionEvent.OverlayHidden,
+            is SessionEvent.OverlayHideFailed,
             is SessionEvent.OverlayFailed,
             is SessionEvent.LaunchFailed -> {
                 // no-op: eventos de despliegue no admitidos en Aislada (AD-9)
@@ -148,6 +159,13 @@ class SessionController(
             is SessionEvent.OverlayFailed -> {
                 // no-op: terminación idempotente (AD-9)
             }
+            is SessionEvent.OverlayHidden -> completeTermination()
+            is SessionEvent.OverlayHideFailed -> {
+                runCatching {
+                    android.util.Log.e("SessionController", "Overlay no ocultado al terminar: ${event.cause}")
+                }
+                completeTermination()
+            }
             is SessionEvent.OverlayShown,
             is SessionEvent.BatteryWarning -> {
                 // no-op
@@ -155,13 +173,33 @@ class SessionController(
         }
     }
 
+    private fun completeTermination() {
+        if (_state.value is SessionState.Inactiva) return
+        _state.value = SessionState.Inactiva
+        val reason = pendingTerminationReason ?: _lastTerminationReason.value ?: TerminationReason.ManualStop
+        runCatching {
+            notifier.cancelSessionNotification()
+        }
+        runCatching {
+            notifier.showSessionEnded(reason)
+        }
+    }
+
     private fun terminate(reason: TerminationReason) {
         if (_state.value is SessionState.Deteniendo || _state.value is SessionState.Inactiva) return
         _state.value = SessionState.Deteniendo
         _lastTerminationReason.value = reason
+        pendingTerminationReason = reason
         onCommand(SessionCommand.HideOverlay)
         onCommand(SessionCommand.StopFgs)
         onCommand(SessionCommand.StopWatchdog)
-        _state.value = SessionState.Inactiva
+        scope.launch {
+            delay(TERMINATION_TIMEOUT_MS)
+            completeTermination()
+        }
+    }
+
+    companion object {
+        internal const val TERMINATION_TIMEOUT_MS = 5000L
     }
 }

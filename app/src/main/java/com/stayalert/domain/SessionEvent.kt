@@ -5,6 +5,8 @@ sealed class SessionEvent {
     data object StopRequested : SessionEvent()
     data object ServiceKilled : SessionEvent()
     data object OverlayShown : SessionEvent()
+    data object OverlayHidden : SessionEvent()
+    data class OverlayHideFailed(val cause: String) : SessionEvent()
     data class OverlayFailed(val cause: String) : SessionEvent()
     data class LaunchFailed(val cause: String) : SessionEvent()
     data object ScreenOff : SessionEvent()

@@ -74,6 +74,7 @@ class AppContainer(private val app: Application) {
                 settingsRepository,
                 appInstalledChecker
             ),
+            notifier = notifier,
             onCommand = { command -> commandHandler.handle(command) }
         )
     }
@@ -86,7 +87,6 @@ class AppContainer(private val app: Application) {
             targetAppLauncher = IntentLauncher(app),
             foregroundMonitor = foregroundMonitor,
             overlayController = overlayController,
-            notifier = notifier,
             watchdog = watchdog,
             onEvent = { event -> sessionController.emit(event) }
         )

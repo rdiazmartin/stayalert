@@ -34,7 +34,7 @@ class SystemWatchdogTest {
 
     private class FakeOverlay(private val visible: Boolean) : OverlayController {
         override fun show() {}
-        override fun hide() {}
+        override suspend fun hide() {}
         override fun isVisible(): Boolean = visible
     }
 

@@ -62,6 +62,12 @@ class StopReceiverTest {
                 FakeSettingsRepository(),
                 FakeAppInstalledChecker()
             ),
+            notifier = object : com.stayalert.data.Notifier {
+                override fun createChannels() {}
+                override fun showSessionNotification() {}
+                override fun showSessionEnded(reason: com.stayalert.domain.TerminationReason) {}
+                override fun cancelSessionNotification() {}
+            },
             onCommand = {}
         )
 
@@ -70,6 +76,11 @@ class StopReceiverTest {
         controller.emit(SessionEvent.OverlayShown)
         advanceUntilIdle()
         assertEquals(SessionState.Aislada, controller.state.value)
+    }
+
+    private suspend fun kotlinx.coroutines.test.TestScope.completeTermination(controller: SessionController) {
+        controller.emit(SessionEvent.OverlayHidden)
+        advanceUntilIdle()
     }
 
     @Test
@@ -82,6 +93,8 @@ class StopReceiverTest {
         receiver.onReceive(context, Intent(StopReceiver.ACTION_STOP_SESSION))
 
         advanceUntilIdle()
+        assertEquals(SessionState.Deteniendo, controller.state.value)
+        completeTermination(controller)
         assertEquals(SessionState.Inactiva, controller.state.value)
         assertEquals(TerminationReason.ManualStop, controller.lastTerminationReason.value)
     }
@@ -135,6 +148,8 @@ class StopReceiverTest {
         serviceController.destroy()
 
         advanceUntilIdle()
+        assertEquals(SessionState.Deteniendo, controller.state.value)
+        completeTermination(controller)
         assertEquals(SessionState.Inactiva, controller.state.value)
         assertEquals(TerminationReason.ServiceKilled, controller.lastTerminationReason.value)
     }
@@ -151,6 +166,8 @@ class StopReceiverTest {
         serviceController.destroy()
 
         advanceUntilIdle()
+        assertEquals(SessionState.Deteniendo, controller.state.value)
+        completeTermination(controller)
         assertEquals(SessionState.Inactiva, controller.state.value)
         assertEquals(TerminationReason.ServiceKilled, controller.lastTerminationReason.value)
     }
@@ -161,6 +178,8 @@ class StopReceiverTest {
         startActiveSession(controller)
         controller.emit(SessionEvent.PatternDetected)
         advanceUntilIdle()
+        assertEquals(SessionState.Deteniendo, controller.state.value)
+        completeTermination(controller)
         assertEquals(SessionState.Inactiva, controller.state.value)
         assertEquals(TerminationReason.Pattern, controller.lastTerminationReason.value)
 

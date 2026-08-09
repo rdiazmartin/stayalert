@@ -2,6 +2,6 @@ package com.stayalert.domain
 
 interface OverlayController {
     fun show()
-    fun hide()
+    suspend fun hide()
     fun isVisible(): Boolean
 }

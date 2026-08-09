@@ -70,6 +70,12 @@ class MainScreenTest {
                     override fun isInstalled(packageName: String): Boolean = true
                 }
             ),
+            notifier = object : com.stayalert.data.Notifier {
+                override fun createChannels() {}
+                override fun showSessionNotification() {}
+                override fun showSessionEnded(reason: com.stayalert.domain.TerminationReason) {}
+                override fun cancelSessionNotification() {}
+            },
             onCommand = {}
         )
         return MainViewModel(repository, controller)

@@ -31,6 +31,8 @@ class SystemOverlayController(
 
     private var overlayView: View? = null
     private var windowManager: WindowManager? = null
+    @Volatile
+    private var hideRequested = false
 
     override fun show() {
         scope.launch {
@@ -40,6 +42,7 @@ class SystemOverlayController(
                     onEvent(SessionEvent.OverlayFailed("permiso de overlay revocado"))
                     return@launch
                 }
+                hideRequested = false
                 val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
                 val view = View(context).apply {
                     setBackgroundColor(Color.BLACK)
@@ -94,6 +97,10 @@ class SystemOverlayController(
                         layoutInDisplayCutoutMode = LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
                     }
                 }
+                if (hideRequested) {
+                    android.util.Log.w("OverlayController", "hide solicitado durante el despliegue; overlay no añadido")
+                    return@launch
+                }
                 wm.addView(view, params)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     view.windowInsetsController?.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
@@ -112,19 +119,22 @@ class SystemOverlayController(
         }
     }
 
-    override fun hide() {
-        scope.launch {
-            try {
-                overlayView?.let { view ->
-                    windowManager?.removeView(view)
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("OverlayController", "No se pudo ocultar el overlay", e)
-            } finally {
-                overlayView = null
-                windowManager = null
-                patternDetector.reset()
+    override suspend fun hide() {
+        hideRequested = true
+        try {
+            if (overlayView != null && windowManager == null) {
+                throw IllegalStateException("overlayView presente sin windowManager")
             }
+            overlayView?.let { view ->
+                windowManager?.removeView(view)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("OverlayController", "No se pudo ocultar el overlay", e)
+            throw e
+        } finally {
+            overlayView = null
+            windowManager = null
+            runCatching { patternDetector.reset() }
         }
     }
 

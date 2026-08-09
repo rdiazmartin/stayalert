@@ -6,4 +6,5 @@ interface Notifier {
     fun createChannels()
     fun showSessionNotification()
     fun showSessionEnded(reason: TerminationReason)
+    fun cancelSessionNotification()
 }

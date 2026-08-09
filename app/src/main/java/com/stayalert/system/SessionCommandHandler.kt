@@ -2,7 +2,6 @@ package com.stayalert.system
 
 import android.content.Context
 import android.content.Intent
-import com.stayalert.data.Notifier
 import com.stayalert.data.SettingsRepository
 import com.stayalert.domain.ForegroundMonitor
 import com.stayalert.domain.ForegroundStatus
@@ -14,6 +13,7 @@ import com.stayalert.domain.SessionEvent
 import com.stayalert.domain.TargetApp
 import com.stayalert.domain.TargetAppLauncher
 import com.stayalert.domain.Watchdog
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -26,7 +26,6 @@ class SessionCommandHandler(
     private val targetAppLauncher: TargetAppLauncher,
     private val foregroundMonitor: ForegroundMonitor,
     private val overlayController: OverlayController,
-    private val notifier: Notifier,
     private val watchdog: Watchdog,
     private val onEvent: (SessionEvent) -> Unit
 ) {
@@ -35,11 +34,27 @@ class SessionCommandHandler(
         when (command) {
             SessionCommand.LaunchTarget -> launchTarget()
             SessionCommand.ShowOverlay -> overlayController.show()
-            SessionCommand.HideOverlay -> overlayController.hide()
+            SessionCommand.HideOverlay -> hideOverlay()
             SessionCommand.StartFgs -> startFgs()
             SessionCommand.StopFgs -> stopFgs()
             SessionCommand.StartWatchdog -> watchdog.start()
             SessionCommand.StopWatchdog -> watchdog.stop()
+        }
+    }
+
+    private fun hideOverlay() {
+        scope.launch {
+            try {
+                overlayController.hide()
+                onEvent(SessionEvent.OverlayHidden)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                runCatching {
+                    android.util.Log.e("SessionCommandHandler", "No se pudo ocultar el overlay", e)
+                }
+                onEvent(SessionEvent.OverlayHideFailed(e.message ?: "desconocido"))
+            }
         }
     }
 
