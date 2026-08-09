@@ -35,3 +35,8 @@
 
 - `PatternDetector` no expone el estado del contador [`app/src/main/java/com/stayalert/domain/PatternDetector.kt`] — deferred; añadir `tapCount` expuesto si se necesita debug en el futuro.
 - `MainActivity` crea dos `SystemClock()` separados [`app/src/main/java/com/stayalert/ui/MainActivity.kt:97-100`] — deferred; compartir instancia única con `AppContainer`.
+
+## Deferred from: code review of 2-4-servicio-en-primer-plano-y-notificaciones.md (2026-08-09)
+
+- `SystemNotifier` no maneja `POST_NOTIFICATIONS` (API 33+) [`app/src/main/java/com/stayalert/data/SystemNotifier.kt:94-95`] — deferred; la validación FR-5 ya cubre `areNotificationsEnabled()`.
+- `SystemNotifier` no expone `buildSessionNotification()` [`app/src/main/java/com/stayalert/data/SystemNotifier.kt`] — deferred; se resuelve con el fix de notificación única.

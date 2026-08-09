@@ -1,5 +1,8 @@
 package com.stayalert.system
 
+import android.content.Context
+import android.content.Intent
+import com.stayalert.data.Notifier
 import com.stayalert.data.SettingsRepository
 import com.stayalert.domain.ForegroundMonitor
 import com.stayalert.domain.ForegroundStatus
@@ -16,11 +19,13 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class SessionCommandHandler(
+    private val context: Context,
     private val scope: CoroutineScope,
     private val settingsRepository: SettingsRepository,
     private val targetAppLauncher: TargetAppLauncher,
     private val foregroundMonitor: ForegroundMonitor,
     private val overlayController: OverlayController,
+    private val notifier: Notifier,
     private val onEvent: (SessionEvent) -> Unit
 ) {
 
@@ -29,13 +34,22 @@ class SessionCommandHandler(
             SessionCommand.LaunchTarget -> launchTarget()
             SessionCommand.ShowOverlay -> overlayController.show()
             SessionCommand.HideOverlay -> overlayController.hide()
-            SessionCommand.StartFgs,
-            SessionCommand.StopFgs,
+            SessionCommand.StartFgs -> startFgs()
+            SessionCommand.StopFgs -> stopFgs()
             SessionCommand.StartWatchdog,
             SessionCommand.StopWatchdog -> {
-                // no-op: FGS y watchdog en stories 2.4/2.5
+                // no-op: watchdog en story 2.5
             }
         }
+    }
+
+    private fun startFgs() {
+        val intent = Intent(context, PresenceForegroundService::class.java)
+        context.startForegroundService(intent)
+    }
+
+    private fun stopFgs() {
+        context.stopService(Intent(context, PresenceForegroundService::class.java))
     }
 
     private fun launchTarget() {

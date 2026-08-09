@@ -1,5 +1,6 @@
 package com.stayalert.ui
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -35,9 +36,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.stayalert.data.DataStoreSettingsRepository
 import com.stayalert.data.SystemAppInstalledChecker
 import com.stayalert.data.SystemBatteryOptimizationChecker
+import com.stayalert.data.SystemNotifier
 import com.stayalert.data.SystemPermissionAuditor
 import com.stayalert.domain.PatternDetector
 import com.stayalert.domain.SessionController
+import com.stayalert.domain.SessionEvent
 import com.stayalert.domain.SessionState
 import com.stayalert.domain.SessionValidator
 import com.stayalert.domain.SystemClock
@@ -45,6 +48,7 @@ import com.stayalert.domain.TerminationReason
 import com.stayalert.domain.ValidationFailure
 import com.stayalert.system.IntentLauncher
 import com.stayalert.system.SessionCommandHandler
+import com.stayalert.system.StopReceiver
 import com.stayalert.system.SystemOverlayController
 import com.stayalert.system.UsageStatsForegroundMonitor
 import com.stayalert.ui.components.ResponsibleUseNotice
@@ -104,19 +108,33 @@ class MainActivity : ComponentActivity() {
 
     private val commandHandler by lazy {
         SessionCommandHandler(
+            context = applicationContext,
             scope = lifecycleScope,
             settingsRepository = settingsRepository,
             targetAppLauncher = IntentLauncher(applicationContext),
             foregroundMonitor = UsageStatsForegroundMonitor(applicationContext),
             overlayController = overlayController,
+            notifier = notifier,
             onEvent = { event -> sessionController.emit(event) }
         ).also { sessionCommandHandler = it }
+    }
+
+    private val notifier by lazy {
+        SystemNotifier(applicationContext)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.action == StopReceiver.ACTION_STOP_SESSION) {
+            sessionController.emit(SessionEvent.StopRequested)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         commandHandler
+        notifier.createChannels()
         setContent {
             StayAlertTheme {
                 val mainViewModel: MainViewModel = viewModel(

@@ -19,8 +19,13 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 @OptIn(ExperimentalCoroutinesApi::class)
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class SessionCommandHandlerTest {
 
     private class FakeSettingsRepository : SettingsRepository {
@@ -58,11 +63,17 @@ class SessionCommandHandlerTest {
         launcherSuccess: Boolean = true,
         monitorStatus: ForegroundStatus = ForegroundStatus.FOREGROUND
     ): SessionCommandHandler = SessionCommandHandler(
+        context = androidx.test.core.app.ApplicationProvider.getApplicationContext(),
         scope = scope,
         settingsRepository = FakeSettingsRepository(),
         targetAppLauncher = FakeLauncher(launcherSuccess),
         foregroundMonitor = FakeMonitor(monitorStatus),
         overlayController = overlay,
+        notifier = object : com.stayalert.data.Notifier {
+            override fun createChannels() {}
+            override fun showSessionNotification() {}
+            override fun showSessionEnded(reason: com.stayalert.domain.TerminationReason) {}
+        },
         onEvent = { events.add(it) }
     )
 

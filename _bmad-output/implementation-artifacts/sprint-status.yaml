@@ -58,7 +58,7 @@ development_status:
   2-1-nucleo-de-sesion: done
   2-2-despliegue-secuencial-y-overlay-de-aislamiento: done
   2-3-patron-de-salida: done
-  2-4-servicio-en-primer-plano-y-notificaciones: backlog
+  2-4-servicio-en-primer-plano-y-notificaciones: done
   2-5-watchdog-de-sesion: backlog
   2-6-mock-de-teams-y-validacion-e2e: backlog
   epic-2-retrospective: optional
