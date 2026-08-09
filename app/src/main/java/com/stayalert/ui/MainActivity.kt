@@ -54,6 +54,9 @@ import com.stayalert.R
 class MainActivity : ComponentActivity() {
 
     private val container: AppContainer by lazy {
+        require(application is StayAlertApplication) {
+            "Application debe ser StayAlertApplication, era ${application::class.java.name}"
+        }
         (application as StayAlertApplication).container
     }
 
@@ -71,7 +74,9 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         container.notifier.createChannels()
-        if (savedInstanceState == null && sessionController.state.value !is SessionState.Inactiva) {
+        if (intent.action == StopReceiver.ACTION_STOP_SESSION) {
+            sessionController.emit(SessionEvent.StopRequested)
+        } else if (savedInstanceState == null && sessionController.state.value !is SessionState.Inactiva) {
             sessionController.emit(SessionEvent.StopRequested)
         }
         setContent {

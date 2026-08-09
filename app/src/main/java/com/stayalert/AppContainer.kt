@@ -19,11 +19,17 @@ import com.stayalert.system.UsageStatsForegroundMonitor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 
 class StayAlertApplication : Application() {
 
     val container: AppContainer by lazy { AppContainer(this) }
+
+    override fun onTerminate() {
+        container.appScope.cancel()
+        super.onTerminate()
+    }
 }
 
 class AppContainer(private val app: Application) {
@@ -37,6 +43,7 @@ class AppContainer(private val app: Application) {
     val notifier by lazy { SystemNotifier(app) }
 
     private val clock = SystemClock()
+    private val foregroundMonitor by lazy { UsageStatsForegroundMonitor(app) }
 
     val overlayController: SystemOverlayController by lazy {
         SystemOverlayController(
@@ -52,7 +59,7 @@ class AppContainer(private val app: Application) {
         SystemWatchdog(
             context = app,
             scope = appScope,
-            foregroundMonitor = UsageStatsForegroundMonitor(app),
+            foregroundMonitor = foregroundMonitor,
             overlayController = overlayController,
             targetPackage = { settingsRepository.targetPackage.first() },
             onEvent = { event -> sessionController.emit(event) }
@@ -77,7 +84,7 @@ class AppContainer(private val app: Application) {
             scope = appScope,
             settingsRepository = settingsRepository,
             targetAppLauncher = IntentLauncher(app),
-            foregroundMonitor = UsageStatsForegroundMonitor(app),
+            foregroundMonitor = foregroundMonitor,
             overlayController = overlayController,
             notifier = notifier,
             watchdog = watchdog,

@@ -15,7 +15,7 @@ stayAlert no puede "brikear" un móvil moderno (no toca bootloader/firmware), pe
 
 | ID | Hallazgo | Estado |
 |----|----------|--------|
-| C1 | Overlay huérfano si el proceso muere (FR-17) | ✅ **RESUELTO** — AppContainer + scope de aplicación + limpieza defensiva en onCreate; verificado con force-stop y rotación en emulador |
+| C1 | Overlay huérfano si el proceso muere (FR-17) | ✅ **RESUELTO** — AppContainer + scope de aplicación + limpieza defensiva en onCreate; verificado con force-stop y rotación en emulador (la rotación termina la sesión limpiamente, por decisión de diseño) |
 | C2 | `FLAG_SECURE` sin aviso al usuario | ✅ **RESUELTO** — aviso en ResponsibleUseNotice y en la notificación de sesión activa |
 | C3 | `KEEP_SCREEN_ON` sin liberación garantizada | ✅ **RESUELTO** — cubierto por WMS (libera al destruir la vista) + limpieza defensiva de C1 |
 | A1–A4 | Hallazgos altos | ⏳ Pendiente |

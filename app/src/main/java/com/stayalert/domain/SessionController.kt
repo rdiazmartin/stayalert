@@ -24,7 +24,11 @@ class SessionController(
     init {
         scope.launch {
             for (event in events) {
-                handle(event)
+                try {
+                    handle(event)
+                } catch (e: Exception) {
+                    android.util.Log.e("SessionController", "Error manejando el evento $event", e)
+                }
             }
         }
     }

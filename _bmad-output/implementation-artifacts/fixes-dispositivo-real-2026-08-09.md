@@ -97,7 +97,7 @@
 
 **Verificado en emulador:**
 - Force-stop con sesión activa → sin overlay huérfano, sin FGS colgado.
-- Rotación con sesión activa → sesión sobrevive (overlay + FGS intactos), 1 tap sigue funcionando.
+- Rotación con sesión activa → la limpieza defensiva de `onCreate` emite `StopRequested` y termina la sesión limpiamente (decisión de diseño: la sesión no sobrevive a la rotación — simplicidad sobre robustez).
 
 ### C2. FLAG_SECURE sin aviso — RESUELTO
 

@@ -50,3 +50,10 @@
 
 - `SessionE2ETest` no verifica el proxy SM-1a (mock resumed ≥ 8 h) [`app/src/androidTest/java/com/stayalert/SessionE2ETest.kt`] — deferred; validación manual en emulador; documentar el procedimiento en el README.
 - `SessionE2ETest` no verifica "0 toques recibidos por el mock" (SM-2) [`app/src/androidTest/java/com/stayalert/SessionE2ETest.kt`] — deferred; requiere lectura de logcat en el E2E completo.
+
+## Deferred from: code review of auditoria-pre-distribucion-2026-08-09.md (2026-08-09)
+
+- `terminate()` transiciona a `Inactiva` antes de que el overlay se oculte efectivamente (hide es async vía scope.launch) [`app/src/main/java/com/stayalert/domain/SessionController.kt:150-158`] — deferred; ya registrado como hallazgo A4 de la auditoría; requiere hide suspend o confirmación de `isVisible() == false`.
+- `SystemOverlayController` no usa `createWindowContext` (API 31+) como exige AD-4 [`app/src/main/java/com/stayalert/system/SystemOverlayController.kt:43,97`] — deferred; mejora de arquitectura, funciona el enfoque legacy.
+- `PresenceForegroundService` crea su propio `SystemNotifier` y no garantiza `createChannels()` antes de `startForeground()` [`app/src/main/java/com/stayalert/system/PresenceForegroundService.kt:10-14`] — deferred; no alcanzable hoy (MainActivity.onCreate siempre corre primero), pero defensa: crear canales en `StayAlertApplication.onCreate()`.
+- `SystemNotifier.showSessionEnded(reason)` nunca se invoca desde código de producción [`app/src/main/java/com/stayalert/data/SystemNotifier.kt:70-78`] — deferred; requiere wiring con `SessionController.terminate()` (relacionado con FR-16).
