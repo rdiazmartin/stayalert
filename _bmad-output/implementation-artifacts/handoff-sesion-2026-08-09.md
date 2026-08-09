@@ -92,6 +92,68 @@ Ver `_bmad-output/implementation-artifacts/deferred-work.md` — 15+ entradas, l
 - Navegación con `mutableStateOf` — evaluar Navigation Compose
 - `MainActivity` wiring frágil — considerar `AppContainer`
 
+## Emulador (guía completa)
+
+### Reglas de oro
+
+1. **SIEMPRE con ventana gráfica** — el usuario quiere ver la app en el host. NUNCA usar `-no-window`.
+2. **AVD dedicado `stayalert_avd`** (Pixel 5, API 34, google_apis x86_64). NO usar `ice_test_avd` (de otro propósito).
+3. El emulador puede tardar 30-60 s en bootear; esperar `sys.boot_completed = 1`.
+
+### Crear el AVD (una vez)
+
+```bash
+avdmanager create avd -n stayalert_avd -k "system-images;android-34;google_apis;x86_64" -d pixel_5
+```
+
+### Lanzar (con ventana)
+
+```bash
+nohup emulator -avd stayalert_avd -no-audio -no-boot-anim -gpu swiftshader_indirect > /tmp/opencode/emulator.log 2>&1 &
+adb wait-for-device
+# Esperar boot: adb shell getprop sys.boot_completed → "1"
+```
+
+### Matar el emulador
+
+```bash
+adb emu kill
+```
+
+### Instalar y preparar la app
+
+```bash
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb install -r mock-teams/build/outputs/apk/debug/mock-teams-debug.apk
+adb shell appops set com.stayalert SYSTEM_ALERT_WINDOW allow
+adb shell pm grant com.stayalert android.permission.POST_NOTIFICATIONS
+adb shell am start -n com.stayalert/.ui.MainActivity
+```
+
+### E2E manual (flujo completo)
+
+1. Abrir stayAlert → pulsar "Iniciar Jornada" (botón centrado, ~y=1275 en 1080×2400)
+2. El mock de Teams se abre en primer plano (verificar `adb logcat -s MockTeams:I` → `lifecycle resumed`)
+3. Tras 1 s, el overlay negro cubre la pantalla (verificar: `screencap` devuelve 0 bytes por FLAG_SECURE)
+4. La sesión persiste (el watchdog NO la termina — fix 2.6)
+5. **Patrón de salida:** 4 taps en esquina superior derecha (x≈1000, y≈200 — NO y=100, cae en la status bar)
+6. El mock vuelve a primer plano (sesión terminada)
+
+### Coordenadas útiles (Pixel 5, 1080×2400)
+
+- Botón "Iniciar Jornada": (540, 1275)
+- Icono configuración (engranaje): (992, 150)
+- Región patrón de salida (15%×15% sup-der): x ≥ 918, y ≤ 360 → usar (1000, 200)
+- Fila "Permiso de overlay" en configuración: (500, 300)
+
+### Troubleshooting
+
+- **Screencap vacío (0 bytes)** → el overlay FLAG_SECURE está visible (comportamiento esperado)
+- **Mock pasa a `stopped`** → normal cuando el overlay lo cubre; el watchdog ya no lo interpreta como anomalía (fix 2.6)
+- **Patrón no detectado** → verificar que el tap no cae en la status bar (y=100); usar y=200
+- **"Sesión terminada: no se pudo abrir la app objetivo"** → el mock no está instalado o el paquete/actividad no coincide (`com.microsoft.teams.activities.MainActivity`)
+- **Build falla transitoriamente** → memoria del daemon Gradle (512 MiB); reintentar o subir `org.gradle.jvmargs` en gradle.properties
+
 ## Comandos útiles
 
 ```bash
@@ -101,10 +163,7 @@ Ver `_bmad-output/implementation-artifacts/deferred-work.md` — 15+ entradas, l
 ./gradlew :mock-teams:assembleDebug  # mock APK
 ./gradlew connectedDebugAndroidTest  # tests instrumentados (requiere emulador)
 
-# Emulador (con ventana SIEMPRE)
-emulator -avd stayalert_avd -no-audio -no-boot-anim -gpu swiftshader_indirect
-
-# E2E manual
+# E2E manual (ver sección "Emulador" arriba para la guía completa)
 adb install -r mock-teams/build/outputs/apk/debug/mock-teams-debug.apk
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell appops set com.stayalert SYSTEM_ALERT_WINDOW allow
