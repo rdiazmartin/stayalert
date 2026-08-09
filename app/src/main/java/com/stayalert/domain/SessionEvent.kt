@@ -3,6 +3,7 @@ package com.stayalert.domain
 sealed class SessionEvent {
     data object PatternDetected : SessionEvent()
     data object StopRequested : SessionEvent()
+    data object ServiceKilled : SessionEvent()
     data object OverlayShown : SessionEvent()
     data class OverlayFailed(val cause: String) : SessionEvent()
     data class LaunchFailed(val cause: String) : SessionEvent()

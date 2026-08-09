@@ -1,6 +1,5 @@
 package com.stayalert.ui
 
-import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -39,7 +38,6 @@ import com.stayalert.domain.SessionEvent
 import com.stayalert.domain.SessionState
 import com.stayalert.domain.TerminationReason
 import com.stayalert.domain.ValidationFailure
-import com.stayalert.system.StopReceiver
 import com.stayalert.ui.components.ResponsibleUseNotice
 import com.stayalert.ui.settings.SettingsScreen
 import com.stayalert.ui.settings.SettingsViewModel
@@ -63,20 +61,11 @@ class MainActivity : ComponentActivity() {
     private val sessionController: SessionController
         get() = container.sessionController
 
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        if (intent.action == StopReceiver.ACTION_STOP_SESSION) {
-            sessionController.emit(SessionEvent.StopRequested)
-        }
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         container.notifier.createChannels()
-        if (intent.action == StopReceiver.ACTION_STOP_SESSION) {
-            sessionController.emit(SessionEvent.StopRequested)
-        } else if (savedInstanceState == null && sessionController.state.value !is SessionState.Inactiva) {
+        if (savedInstanceState == null && sessionController.state.value !is SessionState.Inactiva) {
             sessionController.emit(SessionEvent.StopRequested)
         }
         setContent {
@@ -217,6 +206,7 @@ private fun ValidationFailure.message(): String = when (this) {
 private fun TerminationReason.text(): String = when (this) {
     TerminationReason.Pattern -> "patrón de salida"
     TerminationReason.ManualStop -> "detención manual"
+    TerminationReason.ServiceKilled -> "servicio eliminado por el sistema"
     TerminationReason.ScreenOff -> "pantalla apagada"
     TerminationReason.OverlayMissing -> "overlay ausente"
     TerminationReason.PermissionRevoked -> "permiso revocado"

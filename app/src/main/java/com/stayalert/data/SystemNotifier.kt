@@ -84,6 +84,7 @@ class SystemNotifier(private val context: Context) : Notifier {
     private fun TerminationReason.text(): String = when (this) {
         TerminationReason.Pattern -> "patrón de salida"
         TerminationReason.ManualStop -> "detención manual"
+        TerminationReason.ServiceKilled -> "servicio eliminado por el sistema"
         TerminationReason.ScreenOff -> "pantalla apagada"
         TerminationReason.OverlayMissing -> "overlay ausente"
         TerminationReason.PermissionRevoked -> "permiso revocado"

@@ -66,6 +66,7 @@ class SessionController(
     private fun handleInactiva(event: SessionEvent) {
         when (event) {
             is SessionEvent.StopRequested,
+            is SessionEvent.ServiceKilled,
             is SessionEvent.PatternDetected,
             is SessionEvent.OverlayShown,
             is SessionEvent.OverlayFailed,
@@ -93,6 +94,7 @@ class SessionController(
             is SessionEvent.LaunchFailed -> terminate(TerminationReason.LaunchFailed)
             is SessionEvent.OverlayFailed -> terminate(TerminationReason.OverlayFailed)
             is SessionEvent.StopRequested -> terminate(TerminationReason.ManualStop)
+            is SessionEvent.ServiceKilled -> terminate(TerminationReason.ServiceKilled)
             is SessionEvent.PatternDetected,
             is SessionEvent.ScreenOff,
             is SessionEvent.OverlayMissing,
@@ -111,6 +113,7 @@ class SessionController(
         when (event) {
             is SessionEvent.PatternDetected -> terminate(TerminationReason.Pattern)
             is SessionEvent.StopRequested -> terminate(TerminationReason.ManualStop)
+            is SessionEvent.ServiceKilled -> terminate(TerminationReason.ServiceKilled)
             is SessionEvent.ScreenOff -> terminate(TerminationReason.ScreenOff)
             is SessionEvent.OverlayMissing -> terminate(TerminationReason.OverlayMissing)
             is SessionEvent.PermissionRevoked -> terminate(TerminationReason.PermissionRevoked)
@@ -132,6 +135,7 @@ class SessionController(
     private fun handleDeteniendo(event: SessionEvent) {
         when (event) {
             is SessionEvent.StopRequested,
+            is SessionEvent.ServiceKilled,
             is SessionEvent.PatternDetected,
             is SessionEvent.ScreenOff,
             is SessionEvent.OverlayMissing,

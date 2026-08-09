@@ -3,17 +3,24 @@ package com.stayalert.system
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import com.stayalert.ui.MainActivity
+import com.stayalert.StayAlertApplication
+import com.stayalert.domain.SessionController
+import com.stayalert.domain.SessionEvent
 
 class StopReceiver : BroadcastReceiver() {
 
+    internal var sessionControllerProvider: (Context) -> SessionController? = { context ->
+        (context.applicationContext as? StayAlertApplication)?.container?.sessionController
+    }
+
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == ACTION_STOP_SESSION) {
-            val forward = Intent(context, MainActivity::class.java)
-                .setAction(ACTION_STOP_SESSION)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            context.startActivity(forward)
+        if (intent.action != ACTION_STOP_SESSION) return
+        val controller = sessionControllerProvider(context)
+        if (controller == null) {
+            android.util.Log.w("StopReceiver", "No se pudo resolver SessionController: el kill switch no actúa")
+            return
         }
+        controller.emit(SessionEvent.StopRequested)
     }
 
     companion object {

@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [1, 2, 3, 4]
+stepsCompleted: [1, 2, 3, 4, 5, 6]
 inputDocuments:
   - prds/prd-stayAlert-2026-08-08/prd.md
   - architecture/architecture-stayAlert-2026-08-08/ARCHITECTURE-SPINE.md
@@ -95,6 +95,10 @@ This document provides the complete epic and story breakdown for stayAlert, deco
 | FR-11, FR-12 | Epic 2 (Sesión) | 2.4 |
 | FR-13, FR-14, FR-16 | Epic 2 (Sesión) | 2.5 |
 | FR-17 | Epic 2 (Sesión) | 2.6 |
+| FR-11 (kill switch fiable) | Epic 3 (Robustez) | 3.1 |
+| FR-12 (feedback fin de sesión) | Epic 3 (Robustez) | 3.2 |
+| FR-13, FR-14 (watchdog sin falsos positivos) | Epic 3 (Robustez) | 3.3 |
+| FR-16 (aviso batería 15%) | Epic 3 (Robustez) | 3.5 |
 | NFR-1..NFR-10 | Transversal | En ACs de stories |
 | AD-1..AD-12 | Transversal | En ACs de stories |
 | UX-DR1..UX-DR12 | Transversal | En ACs de stories |
@@ -104,10 +108,16 @@ This document provides the complete epic and story breakdown for stayAlert, deco
 ### Epic 1: Configuración y Preparación del Dispositivo
 El usuario puede preparar stayAlert en su dispositivo: aceptar el aviso de uso responsable, conceder los permisos necesarios (overlay, notificaciones), configurar la app objetivo (paquete + actividad) y completar la exención de batería del fabricante. Sin este epic no se puede iniciar ninguna sesión.
 **FRs covered:** FR-1, FR-2, FR-3, FR-4, FR-15
-
 ### Epic 2: Sesión de Presencia Activa
+
 El usuario puede iniciar, mantener y terminar una sesión de presencia: despliegue secuencial (app objetivo en primer plano → overlay negro → FGS), patrón de salida (4-taps), kill switch en la notificación, watchdog de anomalías (pantalla apagada, overlay ausente, permiso revocado, salida de primer plano, batería baja) y recuperación ante fallos. Se apoya en los permisos del Epic 1.
 **FRs covered:** FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-14, FR-16, FR-17
+
+### Epic 3: Robustez de Sesión
+
+El usuario puede confiar en la sesión: el kill switch de la notificación funciona siempre (foreground o background), toda terminación es limpia y notificada con su motivo, el watchdog no aborta sesiones legítimas y detecta crashes de la app objetivo, la configuración no permite lanzar apps del sistema ni filtra datos al backup, y el aviso de batería baja llega una sola vez. Surge de los hallazgos pendientes de la auditoría pre-distribución (A1–A4, M2, M3, M5) y del code review de los fixes críticos (FR-12, FR-16, B1).
+**FRs covered:** FR-11, FR-12, FR-13, FR-14, FR-16
+**ADs reforzados:** AD-5, AD-8, AD-12
 
 ### Story 2.1: Núcleo de sesión
 
@@ -295,3 +305,102 @@ El usuario puede iniciar, mantener y terminar una sesión de presencia: desplieg
 **FRs covered:** FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-14, FR-16, FR-17
 
 <!-- End story repeat -->
+
+## Epic 3: Robustez de Sesión
+
+El usuario puede confiar en la sesión: el kill switch de la notificación funciona siempre (foreground o background), toda terminación es limpia y notificada con su motivo, el watchdog no aborta sesiones legítimas y detecta crashes de la app objetivo, la configuración no permite lanzar apps del sistema ni filtra datos al backup, y el aviso de batería baja llega una sola vez. Surge de los hallazgos pendientes de la auditoría pre-distribución (A1–A4, M2, M3, M5) y del code review de los fixes críticos (FR-12, FR-16, B1).
+**FRs covered:** FR-11, FR-12, FR-13, FR-14, FR-16
+
+### Story 3.1: Kill switch fiable (A1 + A2)
+
+As a usuario,
+I want que la acción "Detener" de la notificación termine la sesión siempre, esté la app en primer plano o en background,
+So that nunca me quede atrapado en una sesión activa con un kill switch muerto.
+
+**Acceptance Criteria:**
+
+**Given** una sesión activa con la notificación "Sesión activa — toca para detener" visible (FR-11)
+**When** el usuario pulsa la acción "Detener" con la app en background (MainActivity destruida o en pausa)
+**Then** la sesión termina limpiamente (overlay oculto, FGS detenido, watchdog parado) sin abrir la app (A2)
+**And** si el sistema mata el FGS (`START_NOT_STICKY`), la notificación de sesión activa no queda colgada sin servicio detrás (A1)
+**And** si el servicio es eliminado por el sistema con la sesión activa, la sesión se termina (overlay oculto + watchdog parado) en lugar de dejar un kill switch fantasma (A1)
+**And** `StopReceiver` enruta la terminación directamente al `SessionController` vía `AppContainer` (la sesión vive en el proceso), sin depender del ciclo de vida de `MainActivity` (AD-8)
+**And** los tests instrumentados cubren: stop con activity en background, stop con activity destruida, stop con servicio muerto (A1, A2)
+
+### Story 3.2: Terminación limpia con feedback (A4 + FR-12)
+
+As a usuario,
+I want que al terminar la sesión el overlay se oculte siempre y recibir una notificación con el motivo,
+So que nunca quede un overlay visible sin sesión y siempre sepa por qué terminó.
+
+**Acceptance Criteria:**
+
+**Given** una sesión en estado `Aislada` o `Lanzando`
+**When** se ejecuta `terminate(reason)` (patrón, manual, watchdog, etc.)
+**Then** la transición a `Inactiva` ocurre solo después de confirmar que el overlay se ocultó — `HideOverlay` deja de ser fire-and-forget (A4)
+**And** si `hide()` falla, el estado refleja el fallo y la sesión no queda marcada como `Inactiva` con overlay visible (A4)
+**And** toda terminación publica la notificación "Sesión terminada: {motivo}" en el canal `stayalert_events` vía `notifier.showSessionEnded(reason)` (FR-12, AD-8, AD-10)
+**And** la notificación de sesión activa desaparece al terminar (FR-11)
+**And** la terminación sigue siendo idempotente: eventos de terminación en `Deteniendo`/`Inactiva` son no-ops (AD-9)
+**And** los tests unitarios cubren: `terminate` espera el hide (fake overlay con hide suspendible), fallo de hide → estado consistente, `showSessionEnded` invocado con el motivo correcto (FR-12)
+
+### Story 3.3: Watchdog sin falsos positivos (A3 + M5)
+
+As a usuario,
+I want que la sesión no se aborte por inactividad y que un crash de la app objetivo se detecte aunque el overlay esté visible,
+So que mi presencia se mantiene en sesiones largas sin toques y la app objetivo nunca queda expuesta sin aviso.
+
+**Acceptance Criteria:**
+
+**Given** una sesión en estado `Lanzando`
+**When** se confirma que la app objetivo está en primer plano tras el lanzamiento
+**Then** `UsageStatsForegroundMonitor` no aborta la sesión por falta de eventos recientes: la ventana de `queryEvents` se amplía (p.ej. a todo el historial reciente o 10 min) y el último evento `ACTIVITY_RESUMED` de cualquier app determina la app en primer plano (A3)
+**And** una app objetivo ya abierta de antes (sin evento `RESUMED` reciente) no produce `NOT_FOREGROUND` al iniciar sesión (A3)
+**And** sesiones largas sin interacción no se abortan por `UNKNOWN`/`NOT_FOREGROUND` (A3)
+
+**Given** una sesión en estado `Aislada` con overlay visible
+**When** la app objetivo crashea o su proceso muere
+**Then** el watchdog detecta la ausencia del proceso de la app objetivo (p.ej. `ActivityManager`/`getRunningAppProcesses`) y emite `TargetCrashed` (FR-14, M5)
+**And** la sesión termina en < 5 s con notificación "Sesión terminada: la app objetivo se cerró" (FR-14, NFR-3, AD-5)
+**And** la detección de proceso no genera falsos positivos cuando la app objetivo está simplemente cubierta por el overlay (M5)
+**And** los tests unitarios cubren: ventana ampliada (fake monitor), crash de proceso con overlay visible → `TargetCrashed` en < 5 s (fake clock)
+
+### Story 3.4: Configuración segura (M2 + M3)
+
+As a usuario,
+I want que la app solo permita configurar apps de usuario legítimas y que mi configuración no se respalde en la nube,
+So que stayAlert no pueda cubrir apps del sistema con el overlay ni filtrar mi configuración fuera del dispositivo.
+
+**Acceptance Criteria:**
+
+**Given** la pantalla de configuración de la app objetivo
+**When** el usuario guarda un paquete/actividad
+**Then** la validación rechaza paquetes del sistema (p.ej. `com.android.settings`, `com.android.systemui` — flag `FLAG_SYSTEM`) con mensaje claro (M2)
+**And** la validación solo acepta paquetes con una actividad launcher resolvible (`getLaunchIntentForPackage` != null) (M2)
+**And** la validación existente de instalación se mantiene (FR-4)
+**And** la sesión nunca lanza un paquete que no pasó la validación de configuración (M2)
+
+**Given** el manifest de la app
+**When** se instala la app
+**Then** `allowBackup="false"` (o `dataExtractionRules` explícitas) impide que la configuración (paquete/actividad objetivo, aviso aceptado) se respalde en la nube de Google (M3)
+**And** los tests unitarios cubren: validación rechaza paquete de sistema, rechaza paquete sin launcher, acepta paquete de usuario válido (M2)
+
+### Story 3.5: Avisos de batería y determinismo (FR-16 + M1 + B1)
+
+As a usuario,
+I want recibir un aviso único cuando la batería baja del 15% y que los temporizadores de la app sean deterministas,
+So que puedo reaccionar a la batería baja sin spam de notificaciones y la app se comporta igual en tests.
+
+**Acceptance Criteria:**
+
+**Given** una sesión activa con batería ≤ 15% y > 5%
+**When** el watchdog detecta el nivel de batería
+**Then** se publica una única notificación "Batería baja" en el canal `stayalert_events` (FR-16, AD-8)
+**And** la notificación no se re-emite en cada poll de 2 s mientras el nivel se mantiene ≤ 15% (M1, deduplicación)
+**And** si la batería sube por encima del 15% y vuelve a bajar, el aviso se re-emite una vez (M1)
+**And** a ≤ 5% la sesión termina con notificación "Sesión terminada: batería baja" (FR-16, ya implementado — se mantiene)
+
+**Given** el despliegue secuencial de una sesión
+**When** se espera el retardo de 1 s antes de desplegar el overlay
+**Then** el retardo usa el `Clock` inyectable en vez de `delay()` real (B1, AD-12)
+**And** los tests unitarios usan fake clock para verificar el timing de lanzamiento (B1)

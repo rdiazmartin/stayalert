@@ -57,3 +57,7 @@
 - `SystemOverlayController` no usa `createWindowContext` (API 31+) como exige AD-4 [`app/src/main/java/com/stayalert/system/SystemOverlayController.kt:43,97`] — deferred; mejora de arquitectura, funciona el enfoque legacy.
 - `PresenceForegroundService` crea su propio `SystemNotifier` y no garantiza `createChannels()` antes de `startForeground()` [`app/src/main/java/com/stayalert/system/PresenceForegroundService.kt:10-14`] — deferred; no alcanzable hoy (MainActivity.onCreate siempre corre primero), pero defensa: crear canales en `StayAlertApplication.onCreate()`.
 - `SystemNotifier.showSessionEnded(reason)` nunca se invoca desde código de producción [`app/src/main/java/com/stayalert/data/SystemNotifier.kt:70-78`] — deferred; requiere wiring con `SessionController.terminate()` (relacionado con FR-16).
+
+## Deferred from: code review of story 3-1-kill-switch-fiable (2026-08-09)
+
+- `SessionE2ETest` no compila en compileSdk 37: `AppOpsManager.setMode` fue eliminado en API 37 [`app/src/androidTest/java/com/stayalert/SessionE2ETest.kt:36`] — deferred; preexistente (story 2.6), el CI solo corre unit tests y nunca lo detectó; requiere reemplazo de la concesión de overlay vía appops (p.ej. `UiAutomation.executeShellCommand("appops set ...")` o shadow en el E2E).

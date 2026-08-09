@@ -11,5 +11,6 @@ enum class TerminationReason {
     HideOverlayWindows,
     BatteryCritical,
     LaunchFailed,
-    OverlayFailed
+    OverlayFailed,
+    ServiceKilled
 }

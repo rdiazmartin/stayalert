@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.Intent
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.stayalert.StayAlertApplication
+import com.stayalert.domain.SessionState
 import com.stayalert.system.StopReceiver
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -13,14 +15,15 @@ import org.junit.runner.RunWith
 class StopReceiverTest {
 
     @Test
-    fun `StopReceiver reenvia el intent a MainActivity con la accion STOP_SESSION`() {
+    fun `StopReceiver emite StopRequested sin abrir MainActivity`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
+        val app = context.applicationContext as StayAlertApplication
+        val sessionController = app.container.sessionController
+
         val receiver = StopReceiver()
+        receiver.onReceive(context, Intent(StopReceiver.ACTION_STOP_SESSION))
 
-        val intent = Intent(StopReceiver.ACTION_STOP_SESSION)
-        // No debe lanzar excepción: el receiver lanza MainActivity con FLAG_ACTIVITY_NEW_TASK
-        receiver.onReceive(context, intent)
-
-        assertEquals(StopReceiver.ACTION_STOP_SESSION, intent.action)
+        // Sin sesión activa el evento es no-op: el estado permanece Inactiva.
+        assertEquals(SessionState.Inactiva, sessionController.state.value)
     }
 }

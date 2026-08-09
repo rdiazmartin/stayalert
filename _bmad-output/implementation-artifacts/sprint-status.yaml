@@ -62,6 +62,13 @@ development_status:
   2-5-watchdog-de-sesion: done
   2-6-mock-de-teams-y-validacion-e2e: done
   epic-2-retrospective: done
+  epic-3: in-progress
+  3-1-kill-switch-fiable: review
+  3-2-terminacion-limpia-con-feedback: backlog
+  3-3-watchdog-sin-falsos-positivos: backlog
+  3-4-configuracion-segura: backlog
+  3-5-avisos-de-bateria-y-determinismo: backlog
+  epic-3-retrospective: optional
 
 action_items:
   - epic: 1
