@@ -64,6 +64,14 @@ fun ResponsibleUseNotice(
                     modifier = Modifier.fillMaxWidth()
                 )
 
+                Text(
+                    text = "Durante la sesión, la pantalla queda en negro y se bloquean las capturas y grabaciones de pantalla.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Start,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Button(

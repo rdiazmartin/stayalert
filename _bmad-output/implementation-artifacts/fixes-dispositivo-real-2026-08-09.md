@@ -78,3 +78,43 @@
 
 - Auditoría pre-distribución (`auditoria-pre-distribucion-2026-08-09.md`): los 3 hallazgos críticos (C1 overlay huérfano, C2 FLAG_SECURE, C3 KEEP_SCREEN_ON) siguen abiertos.
 - Validación manual SM-1a (mock ≥ 8 h) y SM-2 (0 toques).
+
+---
+
+## F6. Hallazgos críticos de la auditoría (C1, C2, C3) — resueltos
+
+**Fecha:** 2026-08-09 (misma sesión)
+**Verificación:** emulador `stayalert_avd` (API 34) con mock de Teams
+
+### C1. Overlay huérfano si el proceso muere (FR-17) — RESUELTO
+
+**Causa raíz profunda:** la sesión entera vivía en `lifecycleScope` de la actividad. Si la actividad se destruía (rotación, deslizar de recientes) con sesión activa, el watchdog y el procesador de eventos morían y la sesión quedaba "zombie": overlay visible, FGS corriendo, sin nadie procesando el 1 tap.
+
+**Fix:**
+- Nuevo `AppContainer` + `StayAlertApplication` (`app/src/main/java/com/stayalert/AppContainer.kt`): la sesión (controller, watchdog, overlay, handler) vive en un scope de **aplicación** (`SupervisorJob` + `Dispatchers.Main.immediate`), singleton por proceso.
+- `MainActivity` refactorizada para consumir el container (elimina el wiring frágil `lateinit` + lazy circular — deuda señalada 3 veces en reviews).
+- **Limpieza defensiva** en `onCreate`: si la actividad se recrea con una sesión no-`Inactiva`, emite `StopRequested` (terminación limpia: overlay destruido, FGS parado, pantalla liberada).
+
+**Verificado en emulador:**
+- Force-stop con sesión activa → sin overlay huérfano, sin FGS colgado.
+- Rotación con sesión activa → sesión sobrevive (overlay + FGS intactos), 1 tap sigue funcionando.
+
+### C2. FLAG_SECURE sin aviso — RESUELTO
+
+- `ResponsibleUseNotice`: nuevo texto "Durante la sesión, la pantalla queda en negro y se bloquean las capturas y grabaciones de pantalla."
+- Notificación de sesión activa: "Sesión activa — toca para detener. Capturas bloqueadas."
+
+### C3. KEEP_SCREEN_ON sin liberación garantizada — RESUELTO
+
+- El WMS libera `KEEP_SCREEN_ON` al destruir la vista del overlay; la limpieza defensiva de C1 garantiza que la vista se destruye siempre (force-stop y rotación verificados).
+
+### Archivos
+
+| Archivo | Cambio |
+|---------|--------|
+| `app/src/main/java/com/stayalert/AppContainer.kt` | NUEVO — container + scope de aplicación |
+| `app/src/main/java/com/stayalert/StayAlertApplication.kt` | NUEVO — Application con container |
+| `app/src/main/AndroidManifest.xml` | `android:name=".StayAlertApplication"` |
+| `app/src/main/java/com/stayalert/ui/MainActivity.kt` | Refactor a container + limpieza defensiva |
+| `app/src/main/java/com/stayalert/ui/components/ResponsibleUseNotice.kt` | Aviso FLAG_SECURE |
+| `app/src/main/java/com/stayalert/data/SystemNotifier.kt` | Texto notificación con aviso de capturas |

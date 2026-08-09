@@ -9,7 +9,18 @@
 
 ## Resumen ejecutivo
 
-stayAlert no puede "brikear" un móvil moderno (no toca bootloader/firmware), pero tiene **1 riesgo crítico** que puede dejar el móvil inutilizable hasta reiniciar/desinstalar: **overlay huérfano si el proceso muere durante una sesión**. Hay 2 riesgos altos adicionales de drenaje de batería y estado inconsistente. Se recomienda resolver los 3 críticos antes de distribuir.
+stayAlert no puede "brikear" un móvil moderno (no toca bootloader/firmware), pero tenía **1 riesgo crítico** que podía dejar el móvil inutilizable hasta reiniciar/desinstalar: **overlay huérfano si el proceso muere durante una sesión**. Los 3 hallazgos críticos (C1, C2, C3) fueron **resueltos y verificados en emulador** (2026-08-09). Quedan pendientes los hallazgos altos (A1–A4) y medios (M1–M5).
+
+## Estado de los hallazgos
+
+| ID | Hallazgo | Estado |
+|----|----------|--------|
+| C1 | Overlay huérfano si el proceso muere (FR-17) | ✅ **RESUELTO** — AppContainer + scope de aplicación + limpieza defensiva en onCreate; verificado con force-stop y rotación en emulador |
+| C2 | `FLAG_SECURE` sin aviso al usuario | ✅ **RESUELTO** — aviso en ResponsibleUseNotice y en la notificación de sesión activa |
+| C3 | `KEEP_SCREEN_ON` sin liberación garantizada | ✅ **RESUELTO** — cubierto por WMS (libera al destruir la vista) + limpieza defensiva de C1 |
+| A1–A4 | Hallazgos altos | ⏳ Pendiente |
+| M1–M5 | Hallazgos medios | ⏳ Pendiente |
+| B1–B2 | Hallazgos bajos | ⏳ Pendiente (B1 resuelto parcialmente con AppContainer) |
 
 ## Hallazgos
 
@@ -89,10 +100,10 @@ stayAlert no puede "brikear" un móvil moderno (no toca bootloader/firmware), pe
 
 | Prioridad | Hallazgos | Acción |
 |-----------|-----------|--------|
-| **Bloquea distribución** | C1, C2, C3 | Arreglar antes de distribuir |
+| **Bloquea distribución** | ~~C1, C2, C3~~ | ✅ Resueltos y verificados (2026-08-09) |
 | **Alta** | A1, A2, A3, A4 | Arreglar en la próxima iteración |
 | **Media** | M1–M5 | Planificar (algunos son mejoras de UX) |
-| **Baja** | B1, B2 | Deuda técnica, resolver con AppContainer |
+| **Baja** | B1, B2 | Deuda técnica, resuelta parcialmente con AppContainer |
 
 ## Nota
 
