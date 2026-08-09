@@ -2,8 +2,8 @@ package com.stayalert.domain
 
 class PatternDetector(
     private val clock: Clock,
-    private val requiredTaps: Int = 4,
-    private val regionFraction: Float = 0.15f,
+    private val requiredTaps: Int = 1,
+    private val regionFraction: Float = 1.0f,
     private val windowMs: Long = SessionConstants.PATTERN_WINDOW_MS
 ) {
 

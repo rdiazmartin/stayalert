@@ -2,7 +2,7 @@
 
 Mantén tu estado "Disponible" en tu app de comunicación corporativa (Microsoft Teams y otras) mientras trabajas en otra cosa.
 
-stayAlert abre la app objetivo en primer plano, despliega una pantalla negra a pantalla completa (apaga los píxeles en OLED y bloquea toques accidentales) y mantiene la app objetivo en primer plano — el mecanismo oficialmente documentado por Microsoft que conserva el estado "Disponible" en móvil. Para salir, un patrón táctil de seguridad (4 toques en la esquina superior derecha) restaura el dispositivo al instante.
+stayAlert abre la app objetivo en primer plano, despliega una pantalla negra a pantalla completa (apaga los píxeles en OLED y bloquea toques accidentales) y mantiene la app objetivo en primer plano — el mecanismo oficialmente documentado por Microsoft que conserva el estado "Disponible" en móvil. Para salir, un toque en cualquier parte de la pantalla restaura el dispositivo al instante.
 
 > **Aviso de uso responsable:** esta app mantiene una señal de presencia activa sin interacción del usuario. Su uso puede no estar alineado con la política de tu empleador. Úsala solo en dispositivos propios.
 
@@ -13,7 +13,7 @@ stayAlert abre la app objetivo en primer plano, despliega una pantalla negra a p
 - **App objetivo configurable**: paquete y actividad principal (default `com.microsoft.teams`), con validación de instalación.
 - **Exención de batería del fabricante**: guiado a Ajustes para que el servicio no sea eliminado.
 - **Sesión de presencia**: app objetivo en primer plano → overlay negro → servicio en primer plano con notificación.
-- **Patrón de salida**: 4 toques en la esquina superior derecha (región 15% × 15%, ventana 500 ms).
+- **Patrón de salida**: un toque en cualquier parte de la pantalla negra termina la sesión.
 - **Watchdog de sesión**: termina la sesión automáticamente ante pantalla apagada, overlay ausente, permiso revocado, salida de primer plano o batería baja.
 - **100% on-device**: sin red, sin cuentas, sin telemetría.
 
@@ -85,7 +85,7 @@ El mock registra en logcat (`MockTeams` tag): lifecycle (created/resumed/paused/
 
 ### Terminar una jornada
 
-- **Patrón de salida**: pulsa **4 veces consecutivas** en la **esquina superior derecha** de la pantalla negra (ventana de 500 ms entre toques). El overlay se destruye al instante.
+- **Toque de salida**: pulsa **una vez en cualquier parte** de la pantalla negra. El overlay se destruye al instante.
 - **Desde la notificación**: pulsa **"Detener"** en la notificación de sesión activa.
 - **Automático**: el watchdog termina la sesión si la pantalla se apaga, el overlay desaparece, el permiso se revoca, la app objetivo sale de primer plano o la batería baja del 5%. Recibirás una notificación con el motivo.
 

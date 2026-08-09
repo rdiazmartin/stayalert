@@ -58,18 +58,19 @@ class SessionCommandHandler(
                 packageName = settingsRepository.targetPackage.first(),
                 activityName = settingsRepository.targetActivity.first()
             )
+            android.util.Log.d("SessionCommandHandler", "Lanzando objetivo: ${target.packageName}/${target.activityName}")
             val result = targetAppLauncher.launch(target)
             if (result.isFailure) {
                 val error = result.exceptionOrNull()
+                val reason = when (error) {
+                    is LaunchError.PackageNotInstalled -> "paquete no instalado"
+                    is LaunchError.ActivityNotFound -> "actividad no resuelta"
+                    is LaunchError.SystemFailure -> error.cause.message ?: "fallo del sistema"
+                    else -> "fallo desconocido"
+                }
+                android.util.Log.e("SessionCommandHandler", "LaunchFailed: $reason", error)
                 onEvent(
-                    SessionEvent.LaunchFailed(
-                        when (error) {
-                            is LaunchError.PackageNotInstalled -> "paquete no instalado"
-                            is LaunchError.ActivityNotFound -> "actividad no resuelta"
-                            is LaunchError.SystemFailure -> error.cause.message ?: "fallo del sistema"
-                            else -> "fallo desconocido"
-                        }
-                    )
+                    SessionEvent.LaunchFailed(reason)
                 )
                 return@launch
             }
@@ -77,6 +78,7 @@ class SessionCommandHandler(
             delay(SessionConstants.LAUNCH_DELAY_MS)
 
             val status = foregroundMonitor.status(target.packageName)
+            android.util.Log.d("SessionCommandHandler", "Foreground de ${target.packageName} tras ${SessionConstants.LAUNCH_DELAY_MS} ms: $status")
             if (status == ForegroundStatus.NOT_FOREGROUND) {
                 onEvent(SessionEvent.LaunchFailed("la app objetivo no está en primer plano"))
                 return@launch

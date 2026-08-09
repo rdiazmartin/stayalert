@@ -31,16 +31,15 @@ class IntentLauncherTest {
     }
 
     @Test
-    fun `launch devuelve ActivityNotFound para una actividad inexistente`() = runTest {
+    fun `launch hace fallback al intent implicito cuando la actividad exacta no existe`() = runTest {
         val launcher = IntentLauncher(context)
         val result = launcher.launch(
             TargetApp(
                 packageName = context.packageName,
-                activityName = "com.stayalert.NoExiste"
+                activityName = "com.stayalert.ActividadInexistente"
             )
         )
-        assertTrue(result.isFailure)
-        assertEquals(LaunchError.ActivityNotFound, result.exceptionOrNull())
+        assertTrue(result.isSuccess)
     }
 
     @Test
@@ -53,5 +52,6 @@ class IntentLauncherTest {
             )
         )
         assertTrue(result.isFailure)
+        assertEquals(LaunchError.ActivityNotFound, result.exceptionOrNull())
     }
 }
