@@ -1,0 +1,464 @@
+diff --git a/_bmad-output/implementation-artifacts/sprint-status.yaml b/_bmad-output/implementation-artifacts/sprint-status.yaml
+index 648059c..d336dfd 100644
+--- a/_bmad-output/implementation-artifacts/sprint-status.yaml
++++ b/_bmad-output/implementation-artifacts/sprint-status.yaml
+@@ -58,7 +58,7 @@ development_status:
+   2-1-nucleo-de-sesion: done
+   2-2-despliegue-secuencial-y-overlay-de-aislamiento: done
+   2-3-patron-de-salida: done
+-  2-4-servicio-en-primer-plano-y-notificaciones: backlog
++  2-4-servicio-en-primer-plano-y-notificaciones: review
+   2-5-watchdog-de-sesion: backlog
+   2-6-mock-de-teams-y-validacion-e2e: backlog
+   epic-2-retrospective: optional
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index 9003aa8..bcf09a6 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -5,6 +5,9 @@
+     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
++    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
++    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
++    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+ 
+     <queries>
+         <package android:name="com.microsoft.teams" />
+@@ -25,6 +28,23 @@
+                 <category android:name="android.intent.category.LAUNCHER" />
+             </intent-filter>
+         </activity>
++
++        <service
++            android:name=".system.PresenceForegroundService"
++            android:exported="false"
++            android:foregroundServiceType="specialUse">
++            <property
++                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
++                android:value="mantener la app objetivo en primer plano con overlay de aislamiento" />
++        </service>
++
++        <receiver
++            android:name=".system.StopReceiver"
++            android:exported="false">
++            <intent-filter>
++                <action android:name="com.stayalert.action.STOP_SESSION" />
++            </intent-filter>
++        </receiver>
+     </application>
+ 
+ </manifest>
+diff --git a/app/src/main/java/com/stayalert/data/Notifier.kt b/app/src/main/java/com/stayalert/data/Notifier.kt
+new file mode 100644
+index 0000000..c4186e0
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/data/Notifier.kt
+@@ -0,0 +1,9 @@
++package com.stayalert.data
++
++import com.stayalert.domain.TerminationReason
++
++interface Notifier {
++    fun createChannels()
++    fun showSessionNotification()
++    fun showSessionEnded(reason: TerminationReason)
++}
+diff --git a/app/src/main/java/com/stayalert/data/SystemNotifier.kt b/app/src/main/java/com/stayalert/data/SystemNotifier.kt
+new file mode 100644
+index 0000000..71d5062
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/data/SystemNotifier.kt
+@@ -0,0 +1,94 @@
++package com.stayalert.data
++
++import android.app.Notification
++import android.app.NotificationChannel
++import android.app.NotificationManager
++import android.app.PendingIntent
++import android.content.Context
++import android.content.Intent
++import com.stayalert.R
++import com.stayalert.domain.TerminationReason
++import com.stayalert.system.StopReceiver
++
++class SystemNotifier(private val context: Context) : Notifier {
++
++    companion object {
++        const val CHANNEL_SESSION = "stayalert_session"
++        const val CHANNEL_EVENTS = "stayalert_events"
++        const val NOTIFICATION_ID_SESSION = 1
++        const val NOTIFICATION_ID_EVENT = 2
++    }
++
++    private val notificationManager =
++        context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
++
++    override fun createChannels() {
++        val sessionChannel = NotificationChannel(
++            CHANNEL_SESSION,
++            "Sesión activa",
++            NotificationManager.IMPORTANCE_LOW
++        ).apply {
++            description = "Notificación de sesión activa con acción de detención"
++        }
++        val eventsChannel = NotificationChannel(
++            CHANNEL_EVENTS,
++            "Fin de sesión",
++            NotificationManager.IMPORTANCE_DEFAULT
++        ).apply {
++            description = "Avisos y notificaciones de fin de sesión"
++        }
++        notificationManager.createNotificationChannel(sessionChannel)
++        notificationManager.createNotificationChannel(eventsChannel)
++    }
++
++    override fun showSessionNotification() {
++        val stopIntent = PendingIntent.getBroadcast(
++            context,
++            0,
++            Intent(context, StopReceiver::class.java).setAction(StopReceiver.ACTION_STOP_SESSION),
++            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
++        )
++        val notification = Notification.Builder(context, CHANNEL_SESSION)
++            .setSmallIcon(R.drawable.ic_launcher_foreground)
++            .setContentTitle("Sesión activa")
++            .setContentText("Sesión activa — toca para detener")
++            .setOngoing(true)
++            .addAction(
++                Notification.Action.Builder(
++                    null,
++                    "Detener",
++                    stopIntent
++                ).build()
++            )
++            .build()
++        notificationManager.notify(NOTIFICATION_ID_SESSION, notification)
++    }
++
++    override fun showSessionEnded(reason: TerminationReason) {
++        val notification = Notification.Builder(context, CHANNEL_EVENTS)
++            .setSmallIcon(R.drawable.ic_launcher_foreground)
++            .setContentTitle("Sesión terminada")
++            .setContentText("Sesión terminada: ${reason.text()}")
++            .setAutoCancel(true)
++            .build()
++        notificationManager.notify(NOTIFICATION_ID_EVENT, notification)
++    }
++
++    fun cancelSessionNotification() {
++        notificationManager.cancel(NOTIFICATION_ID_SESSION)
++    }
++
++    private fun TerminationReason.text(): String = when (this) {
++        TerminationReason.Pattern -> "patrón de salida"
++        TerminationReason.ManualStop -> "detención manual"
++        TerminationReason.ScreenOff -> "pantalla apagada"
++        TerminationReason.OverlayMissing -> "overlay ausente"
++        TerminationReason.PermissionRevoked -> "permiso revocado"
++        TerminationReason.TargetLeftForeground -> "la app objetivo salió de primer plano"
++        TerminationReason.TargetCrashed -> "la app objetivo se cerró"
++        TerminationReason.HideOverlayWindows -> "overlay no dibujado"
++        TerminationReason.BatteryCritical -> "batería baja"
++        TerminationReason.LaunchFailed -> "no se pudo abrir la app objetivo"
++        TerminationReason.OverlayFailed -> "no se pudo desplegar el overlay"
++    }
++}
+diff --git a/app/src/main/java/com/stayalert/system/PresenceForegroundService.kt b/app/src/main/java/com/stayalert/system/PresenceForegroundService.kt
+new file mode 100644
+index 0000000..2d0f845
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/system/PresenceForegroundService.kt
+@@ -0,0 +1,54 @@
++package com.stayalert.system
++
++import android.app.Service
++import android.content.Intent
++import android.os.IBinder
++import com.stayalert.data.SystemNotifier
++
++class PresenceForegroundService : Service() {
++
++    private lateinit var notifier: SystemNotifier
++
++    override fun onCreate() {
++        super.onCreate()
++        notifier = SystemNotifier(this)
++    }
++
++    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
++        notifier.showSessionNotification()
++        startForeground(
++            SystemNotifier.NOTIFICATION_ID_SESSION,
++            buildSessionNotification()
++        )
++        return START_STICKY
++    }
++
++    override fun onDestroy() {
++        notifier.cancelSessionNotification()
++        super.onDestroy()
++    }
++
++    override fun onBind(intent: Intent?): IBinder? = null
++
++    private fun buildSessionNotification(): android.app.Notification {
++        val stopIntent = android.app.PendingIntent.getBroadcast(
++            this,
++            0,
++            Intent(this, StopReceiver::class.java).setAction(StopReceiver.ACTION_STOP_SESSION),
++            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
++        )
++        return android.app.Notification.Builder(this, SystemNotifier.CHANNEL_SESSION)
++            .setSmallIcon(com.stayalert.R.drawable.ic_launcher_foreground)
++            .setContentTitle("Sesión activa")
++            .setContentText("Sesión activa — toca para detener")
++            .setOngoing(true)
++            .addAction(
++                android.app.Notification.Action.Builder(
++                    null,
++                    "Detener",
++                    stopIntent
++                ).build()
++            )
++            .build()
++    }
++}
+diff --git a/app/src/main/java/com/stayalert/system/SessionCommandHandler.kt b/app/src/main/java/com/stayalert/system/SessionCommandHandler.kt
+index dbe3678..280c86f 100644
+--- a/app/src/main/java/com/stayalert/system/SessionCommandHandler.kt
++++ b/app/src/main/java/com/stayalert/system/SessionCommandHandler.kt
+@@ -1,5 +1,8 @@
+ package com.stayalert.system
+ 
++import android.content.Context
++import android.content.Intent
++import com.stayalert.data.Notifier
+ import com.stayalert.data.SettingsRepository
+ import com.stayalert.domain.ForegroundMonitor
+ import com.stayalert.domain.ForegroundStatus
+@@ -16,11 +19,13 @@ import kotlinx.coroutines.flow.first
+ import kotlinx.coroutines.launch
+ 
+ class SessionCommandHandler(
++    private val context: Context,
+     private val scope: CoroutineScope,
+     private val settingsRepository: SettingsRepository,
+     private val targetAppLauncher: TargetAppLauncher,
+     private val foregroundMonitor: ForegroundMonitor,
+     private val overlayController: OverlayController,
++    private val notifier: Notifier,
+     private val onEvent: (SessionEvent) -> Unit
+ ) {
+ 
+@@ -29,15 +34,24 @@ class SessionCommandHandler(
+             SessionCommand.LaunchTarget -> launchTarget()
+             SessionCommand.ShowOverlay -> overlayController.show()
+             SessionCommand.HideOverlay -> overlayController.hide()
+-            SessionCommand.StartFgs,
+-            SessionCommand.StopFgs,
++            SessionCommand.StartFgs -> startFgs()
++            SessionCommand.StopFgs -> stopFgs()
+             SessionCommand.StartWatchdog,
+             SessionCommand.StopWatchdog -> {
+-                // no-op: FGS y watchdog en stories 2.4/2.5
++                // no-op: watchdog en story 2.5
+             }
+         }
+     }
+ 
++    private fun startFgs() {
++        val intent = Intent(context, PresenceForegroundService::class.java)
++        context.startForegroundService(intent)
++    }
++
++    private fun stopFgs() {
++        context.stopService(Intent(context, PresenceForegroundService::class.java))
++    }
++
+     private fun launchTarget() {
+         scope.launch {
+             val target = TargetApp(
+diff --git a/app/src/main/java/com/stayalert/system/StopReceiver.kt b/app/src/main/java/com/stayalert/system/StopReceiver.kt
+new file mode 100644
+index 0000000..1940c9e
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/system/StopReceiver.kt
+@@ -0,0 +1,20 @@
++package com.stayalert.system
++
++import android.content.BroadcastReceiver
++import android.content.Context
++import android.content.Intent
++import com.stayalert.domain.SessionEvent
++
++class StopReceiver : BroadcastReceiver() {
++
++    override fun onReceive(context: Context, intent: Intent) {
++        if (intent.action == ACTION_STOP_SESSION) {
++            onStopRequested?.invoke(SessionEvent.StopRequested)
++        }
++    }
++
++    companion object {
++        const val ACTION_STOP_SESSION = "com.stayalert.action.STOP_SESSION"
++        var onStopRequested: ((SessionEvent) -> Unit)? = null
++    }
++}
+diff --git a/app/src/main/java/com/stayalert/ui/MainActivity.kt b/app/src/main/java/com/stayalert/ui/MainActivity.kt
+index c8201c2..39d730f 100644
+--- a/app/src/main/java/com/stayalert/ui/MainActivity.kt
++++ b/app/src/main/java/com/stayalert/ui/MainActivity.kt
+@@ -35,6 +35,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
+ import com.stayalert.data.DataStoreSettingsRepository
+ import com.stayalert.data.SystemAppInstalledChecker
+ import com.stayalert.data.SystemBatteryOptimizationChecker
++import com.stayalert.data.SystemNotifier
+ import com.stayalert.data.SystemPermissionAuditor
+ import com.stayalert.domain.PatternDetector
+ import com.stayalert.domain.SessionController
+@@ -45,6 +46,7 @@ import com.stayalert.domain.TerminationReason
+ import com.stayalert.domain.ValidationFailure
+ import com.stayalert.system.IntentLauncher
+ import com.stayalert.system.SessionCommandHandler
++import com.stayalert.system.StopReceiver
+ import com.stayalert.system.SystemOverlayController
+ import com.stayalert.system.UsageStatsForegroundMonitor
+ import com.stayalert.ui.components.ResponsibleUseNotice
+@@ -104,19 +106,27 @@ class MainActivity : ComponentActivity() {
+ 
+     private val commandHandler by lazy {
+         SessionCommandHandler(
++            context = applicationContext,
+             scope = lifecycleScope,
+             settingsRepository = settingsRepository,
+             targetAppLauncher = IntentLauncher(applicationContext),
+             foregroundMonitor = UsageStatsForegroundMonitor(applicationContext),
+             overlayController = overlayController,
++            notifier = notifier,
+             onEvent = { event -> sessionController.emit(event) }
+         ).also { sessionCommandHandler = it }
+     }
+ 
++    private val notifier by lazy {
++        SystemNotifier(applicationContext)
++    }
++
+     override fun onCreate(savedInstanceState: Bundle?) {
+         enableEdgeToEdge()
+         super.onCreate(savedInstanceState)
+         commandHandler
++        notifier.createChannels()
++        StopReceiver.onStopRequested = { event -> sessionController.emit(event) }
+         setContent {
+             StayAlertTheme {
+                 val mainViewModel: MainViewModel = viewModel(
+diff --git a/app/src/test/java/com/stayalert/data/SystemNotifierTest.kt b/app/src/test/java/com/stayalert/data/SystemNotifierTest.kt
+new file mode 100644
+index 0000000..5fb3332
+--- /dev/null
++++ b/app/src/test/java/com/stayalert/data/SystemNotifierTest.kt
+@@ -0,0 +1,67 @@
++package com.stayalert.data
++
++import android.app.NotificationManager
++import android.content.Context
++import androidx.test.core.app.ApplicationProvider
++import com.stayalert.domain.TerminationReason
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertNotNull
++import org.junit.Assert.assertTrue
++import org.junit.Test
++import org.junit.runner.RunWith
++import org.robolectric.RobolectricTestRunner
++import org.robolectric.Shadows
++import org.robolectric.annotation.Config
++
++@RunWith(RobolectricTestRunner::class)
++@Config(sdk = [34])
++class SystemNotifierTest {
++
++    private val context: Context = ApplicationProvider.getApplicationContext()
++    private val notifier = SystemNotifier(context)
++    private val notificationManager =
++        context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
++
++    @Test
++    fun `createChannels crea los dos canales`() {
++        notifier.createChannels()
++        assertNotNull(notificationManager.getNotificationChannel(SystemNotifier.CHANNEL_SESSION))
++        assertNotNull(notificationManager.getNotificationChannel(SystemNotifier.CHANNEL_EVENTS))
++    }
++
++    @Test
++    fun `showSessionNotification publica la notificacion de sesion`() {
++        notifier.createChannels()
++        notifier.showSessionNotification()
++        val notification = Shadows.shadowOf(notificationManager)
++            .getNotification(SystemNotifier.NOTIFICATION_ID_SESSION)
++        assertNotNull(notification)
++        assertEquals("Sesión activa", notification.extras.getString("android.title"))
++    }
++
++    @Test
++    fun `showSessionEnded publica la notificacion con el motivo`() {
++        notifier.createChannels()
++        notifier.showSessionEnded(TerminationReason.Pattern)
++        val notification = Shadows.shadowOf(notificationManager)
++            .getNotification(SystemNotifier.NOTIFICATION_ID_EVENT)
++        assertNotNull(notification)
++        assertEquals("Sesión terminada", notification.extras.getString("android.title"))
++        assertTrue(notification.extras.getString("android.text")!!.contains("patrón de salida"))
++    }
++
++    @Test
++    fun `todos los motivos tienen texto`() {
++        val reasons = TerminationReason.entries
++        assertTrue(reasons.size >= 11)
++        for (reason in reasons) {
++            notifier.createChannels()
++            notifier.showSessionEnded(reason)
++            val notification = Shadows.shadowOf(notificationManager)
++                .getNotification(SystemNotifier.NOTIFICATION_ID_EVENT)
++            assertNotNull("Falta notificación para $reason", notification)
++            val text = notification.extras.getString("android.text")
++            assertTrue("Falta texto para $reason", text!!.startsWith("Sesión terminada: "))
++        }
++    }
++}
+diff --git a/app/src/test/java/com/stayalert/system/SessionCommandHandlerTest.kt b/app/src/test/java/com/stayalert/system/SessionCommandHandlerTest.kt
+index 89187f9..88e17fa 100644
+--- a/app/src/test/java/com/stayalert/system/SessionCommandHandlerTest.kt
++++ b/app/src/test/java/com/stayalert/system/SessionCommandHandlerTest.kt
+@@ -19,8 +19,13 @@ import kotlinx.coroutines.test.runTest
+ import org.junit.Assert.assertEquals
+ import org.junit.Assert.assertTrue
+ import org.junit.Test
++import org.junit.runner.RunWith
++import org.robolectric.RobolectricTestRunner
++import org.robolectric.annotation.Config
+ 
+ @OptIn(ExperimentalCoroutinesApi::class)
++@RunWith(RobolectricTestRunner::class)
++@Config(sdk = [34])
+ class SessionCommandHandlerTest {
+ 
+     private class FakeSettingsRepository : SettingsRepository {
+@@ -58,11 +63,17 @@ class SessionCommandHandlerTest {
+         launcherSuccess: Boolean = true,
+         monitorStatus: ForegroundStatus = ForegroundStatus.FOREGROUND
+     ): SessionCommandHandler = SessionCommandHandler(
++        context = androidx.test.core.app.ApplicationProvider.getApplicationContext(),
+         scope = scope,
+         settingsRepository = FakeSettingsRepository(),
+         targetAppLauncher = FakeLauncher(launcherSuccess),
+         foregroundMonitor = FakeMonitor(monitorStatus),
+         overlayController = overlay,
++        notifier = object : com.stayalert.data.Notifier {
++            override fun createChannels() {}
++            override fun showSessionNotification() {}
++            override fun showSessionEnded(reason: com.stayalert.domain.TerminationReason) {}
++        },
+         onEvent = { events.add(it) }
+     )
+ 

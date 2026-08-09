@@ -52,6 +52,18 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell am start -n com.stayalert/.ui.MainActivity
 ```
 
+### Mock de Teams (solo debug)
+
+El módulo `mock-teams/` es un APK de prueba con paquete `com.microsoft.teams` para validar el flujo sin Teams real. **Solo para debug**: no es dependencia de `app`, por lo que `assembleRelease` de la app no lo incluye; no distribuir el APK del mock.
+
+```bash
+# Compilar e instalar el mock
+./gradlew :mock-teams:assembleDebug
+adb install -r mock-teams/build/outputs/apk/debug/mock-teams-debug.apk
+```
+
+El mock registra en logcat (`MockTeams` tag): lifecycle (created/resumed/paused/stopped) y toques recibidos. Para la validación SM-1a (mock permanece resumed ≥ 8 h), ejecutar el flujo completo y verificar `MockTeams: lifecycle resumed` en logcat durante el periodo deseado.
+
 ## Guía de uso
 
 ### Primer inicio

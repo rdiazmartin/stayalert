@@ -1,6 +1,8 @@
 package com.stayalert.ui.viewmodel
 
 import com.stayalert.data.SettingsRepository
+import com.stayalert.domain.SessionController
+import com.stayalert.domain.SessionValidator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,11 +39,30 @@ class MainViewModelTest {
         }
     }
 
+    private fun createViewModel(
+        repository: SettingsRepository = FakeSettingsRepository(false),
+        controller: SessionController = SessionController(
+            scope = kotlinx.coroutines.test.TestScope(),
+            validator = SessionValidator(
+                permissionAuditor = object : com.stayalert.data.PermissionAuditor {
+                    override fun canDrawOverlays(): Boolean = true
+                    override fun areNotificationsEnabled(): Boolean = true
+                    override fun audit(): List<com.stayalert.data.PermissionStatus> = emptyList()
+                },
+                settingsRepository = repository,
+                appInstalledChecker = object : com.stayalert.data.AppInstalledChecker {
+                    override fun isInstalled(packageName: String): Boolean = true
+                }
+            ),
+            onCommand = {}
+        )
+    ): MainViewModel = MainViewModel(repository, controller)
+
     @Test
     fun `noticeAccepted expone el valor inicial del repository`() = runTest {
         Dispatchers.setMain(UnconfinedTestDispatcher())
         try {
-            val viewModel = MainViewModel(FakeSettingsRepository(false))
+            val viewModel = createViewModel()
             assertFalse(viewModel.noticeAccepted.value)
         } finally {
             Dispatchers.resetMain()
@@ -53,7 +74,7 @@ class MainViewModelTest {
         Dispatchers.setMain(UnconfinedTestDispatcher())
         try {
             val fakeRepository = FakeSettingsRepository(false)
-            val viewModel = MainViewModel(fakeRepository)
+            val viewModel = createViewModel(repository = fakeRepository)
             viewModel.acceptNotice()
             assertTrue(viewModel.noticeAccepted.value)
         } finally {

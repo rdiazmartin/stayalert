@@ -1,0 +1,365 @@
+diff --git a/_bmad-output/implementation-artifacts/sprint-status.yaml b/_bmad-output/implementation-artifacts/sprint-status.yaml
+index 34f88a4..78e4fa4 100644
+--- a/_bmad-output/implementation-artifacts/sprint-status.yaml
++++ b/_bmad-output/implementation-artifacts/sprint-status.yaml
+@@ -59,6 +59,6 @@ development_status:
+   2-2-despliegue-secuencial-y-overlay-de-aislamiento: done
+   2-3-patron-de-salida: done
+   2-4-servicio-en-primer-plano-y-notificaciones: done
+-  2-5-watchdog-de-sesion: backlog
++  2-5-watchdog-de-sesion: review
+   2-6-mock-de-teams-y-validacion-e2e: backlog
+   epic-2-retrospective: optional
+diff --git a/app/src/main/java/com/stayalert/domain/Watchdog.kt b/app/src/main/java/com/stayalert/domain/Watchdog.kt
+new file mode 100644
+index 0000000..1e5a801
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/domain/Watchdog.kt
+@@ -0,0 +1,6 @@
++package com.stayalert.domain
++
++interface Watchdog {
++    fun start()
++    fun stop()
++}
+diff --git a/app/src/main/java/com/stayalert/system/SessionCommandHandler.kt b/app/src/main/java/com/stayalert/system/SessionCommandHandler.kt
+index 280c86f..b7a6a9e 100644
+--- a/app/src/main/java/com/stayalert/system/SessionCommandHandler.kt
++++ b/app/src/main/java/com/stayalert/system/SessionCommandHandler.kt
+@@ -13,6 +13,7 @@ import com.stayalert.domain.SessionConstants
+ import com.stayalert.domain.SessionEvent
+ import com.stayalert.domain.TargetApp
+ import com.stayalert.domain.TargetAppLauncher
++import com.stayalert.domain.Watchdog
+ import kotlinx.coroutines.CoroutineScope
+ import kotlinx.coroutines.delay
+ import kotlinx.coroutines.flow.first
+@@ -26,6 +27,7 @@ class SessionCommandHandler(
+     private val foregroundMonitor: ForegroundMonitor,
+     private val overlayController: OverlayController,
+     private val notifier: Notifier,
++    private val watchdog: Watchdog,
+     private val onEvent: (SessionEvent) -> Unit
+ ) {
+ 
+@@ -36,10 +38,8 @@ class SessionCommandHandler(
+             SessionCommand.HideOverlay -> overlayController.hide()
+             SessionCommand.StartFgs -> startFgs()
+             SessionCommand.StopFgs -> stopFgs()
+-            SessionCommand.StartWatchdog,
+-            SessionCommand.StopWatchdog -> {
+-                // no-op: watchdog en story 2.5
+-            }
++            SessionCommand.StartWatchdog -> watchdog.start()
++            SessionCommand.StopWatchdog -> watchdog.stop()
+         }
+     }
+ 
+diff --git a/app/src/main/java/com/stayalert/system/SystemWatchdog.kt b/app/src/main/java/com/stayalert/system/SystemWatchdog.kt
+new file mode 100644
+index 0000000..dcd9fe7
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/system/SystemWatchdog.kt
+@@ -0,0 +1,85 @@
++package com.stayalert.system
++
++import android.content.Context
++import android.os.BatteryManager
++import android.os.PowerManager
++import android.provider.Settings
++import com.stayalert.domain.Clock
++import com.stayalert.domain.ForegroundMonitor
++import com.stayalert.domain.ForegroundStatus
++import com.stayalert.domain.OverlayController
++import com.stayalert.domain.SessionConstants
++import com.stayalert.domain.SessionEvent
++import com.stayalert.domain.Watchdog
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.Job
++import kotlinx.coroutines.delay
++import kotlinx.coroutines.isActive
++import kotlinx.coroutines.launch
++
++class SystemWatchdog(
++    private val context: Context,
++    private val scope: CoroutineScope,
++    private val clock: Clock,
++    private val foregroundMonitor: ForegroundMonitor,
++    private val overlayController: OverlayController,
++    private val targetPackage: suspend () -> String,
++    private val onEvent: (SessionEvent) -> Unit
++) : Watchdog {
++
++    private var job: Job? = null
++
++    override fun start() {
++        if (job?.isActive == true) return
++        job = scope.launch {
++            while (isActive) {
++                check()
++                delay(SessionConstants.WATCHDOG_POLL_MS)
++            }
++        }
++    }
++
++    override fun stop() {
++        job?.cancel()
++        job = null
++    }
++
++    private suspend fun check() {
++        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
++        if (!powerManager.isInteractive) {
++            onEvent(SessionEvent.ScreenOff)
++            return
++        }
++
++        if (!Settings.canDrawOverlays(context)) {
++            onEvent(SessionEvent.PermissionRevoked)
++            return
++        }
++
++        if (!overlayController.isVisible()) {
++            onEvent(SessionEvent.OverlayMissing)
++            return
++        }
++
++        val status = foregroundMonitor.status(targetPackage())
++        if (status == ForegroundStatus.NOT_FOREGROUND) {
++            onEvent(SessionEvent.TargetLeftForeground)
++            return
++        }
++
++        val batteryLevel = readBatteryLevel()
++        if (batteryLevel != null) {
++            if (batteryLevel <= SessionConstants.BATTERY_CRITICAL_LEVEL) {
++                onEvent(SessionEvent.BatteryCritical(batteryLevel))
++            } else if (batteryLevel <= SessionConstants.BATTERY_WARNING_LEVEL) {
++                onEvent(SessionEvent.BatteryWarning(batteryLevel))
++            }
++        }
++    }
++
++    private fun readBatteryLevel(): Int? {
++        val batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
++            ?: return null
++        return batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
++    }
++}
+diff --git a/app/src/main/java/com/stayalert/ui/MainActivity.kt b/app/src/main/java/com/stayalert/ui/MainActivity.kt
+index 8710aca..aa5c239 100644
+--- a/app/src/main/java/com/stayalert/ui/MainActivity.kt
++++ b/app/src/main/java/com/stayalert/ui/MainActivity.kt
+@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.graphics.vector.ImageVector
+ import androidx.compose.ui.res.vectorResource
+ import androidx.compose.ui.unit.dp
++import kotlinx.coroutines.flow.first
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
+ import androidx.lifecycle.lifecycleScope
+ import androidx.lifecycle.viewmodel.compose.viewModel
+@@ -50,6 +51,7 @@ import com.stayalert.system.IntentLauncher
+ import com.stayalert.system.SessionCommandHandler
+ import com.stayalert.system.StopReceiver
+ import com.stayalert.system.SystemOverlayController
++import com.stayalert.system.SystemWatchdog
+ import com.stayalert.system.UsageStatsForegroundMonitor
+ import com.stayalert.ui.components.ResponsibleUseNotice
+ import com.stayalert.ui.settings.SettingsScreen
+@@ -115,10 +117,23 @@ class MainActivity : ComponentActivity() {
+             foregroundMonitor = UsageStatsForegroundMonitor(applicationContext),
+             overlayController = overlayController,
+             notifier = notifier,
++            watchdog = watchdog,
+             onEvent = { event -> sessionController.emit(event) }
+         ).also { sessionCommandHandler = it }
+     }
+ 
++    private val watchdog by lazy {
++        SystemWatchdog(
++            context = applicationContext,
++            scope = lifecycleScope,
++            clock = SystemClock(),
++            foregroundMonitor = UsageStatsForegroundMonitor(applicationContext),
++            overlayController = overlayController,
++            targetPackage = { settingsRepository.targetPackage.first() },
++            onEvent = { event -> sessionController.emit(event) }
++        )
++    }
++
+     private val notifier by lazy {
+         SystemNotifier(applicationContext)
+     }
+diff --git a/app/src/test/java/com/stayalert/system/SessionCommandHandlerTest.kt b/app/src/test/java/com/stayalert/system/SessionCommandHandlerTest.kt
+index 88e17fa..86a7e92 100644
+--- a/app/src/test/java/com/stayalert/system/SessionCommandHandlerTest.kt
++++ b/app/src/test/java/com/stayalert/system/SessionCommandHandlerTest.kt
+@@ -74,6 +74,10 @@ class SessionCommandHandlerTest {
+             override fun showSessionNotification() {}
+             override fun showSessionEnded(reason: com.stayalert.domain.TerminationReason) {}
+         },
++        watchdog = object : com.stayalert.domain.Watchdog {
++            override fun start() {}
++            override fun stop() {}
++        },
+         onEvent = { events.add(it) }
+     )
+ 
+diff --git a/app/src/test/java/com/stayalert/system/SystemWatchdogTest.kt b/app/src/test/java/com/stayalert/system/SystemWatchdogTest.kt
+new file mode 100644
+index 0000000..fd7b2bd
+--- /dev/null
++++ b/app/src/test/java/com/stayalert/system/SystemWatchdogTest.kt
+@@ -0,0 +1,152 @@
++package com.stayalert.system
++
++import android.content.Context
++import android.os.BatteryManager
++import android.os.PowerManager
++import androidx.test.core.app.ApplicationProvider
++import com.stayalert.domain.Clock
++import com.stayalert.domain.ForegroundMonitor
++import com.stayalert.domain.ForegroundStatus
++import com.stayalert.domain.OverlayController
++import com.stayalert.domain.SessionConstants
++import com.stayalert.domain.SessionEvent
++import kotlinx.coroutines.ExperimentalCoroutinesApi
++import kotlinx.coroutines.test.UnconfinedTestDispatcher
++import kotlinx.coroutines.test.advanceTimeBy
++import kotlinx.coroutines.test.runTest
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertTrue
++import org.junit.Test
++import org.junit.runner.RunWith
++import org.robolectric.RobolectricTestRunner
++import org.robolectric.Shadows
++import org.robolectric.annotation.Config
++
++@OptIn(ExperimentalCoroutinesApi::class)
++@RunWith(RobolectricTestRunner::class)
++@Config(sdk = [34])
++class SystemWatchdogTest {
++
++    private val context: Context = ApplicationProvider.getApplicationContext()
++
++    private class FakeClock : Clock {
++        override fun now(): Long = 0
++    }
++
++    private class FakeMonitor(private val status: ForegroundStatus) : ForegroundMonitor {
++        override suspend fun status(packageName: String): ForegroundStatus = status
++    }
++
++    private class FakeOverlay(private val visible: Boolean) : OverlayController {
++        override fun show() {}
++        override fun hide() {}
++        override fun isVisible(): Boolean = visible
++    }
++
++    private fun createWatchdog(
++        scope: kotlinx.coroutines.CoroutineScope,
++        events: MutableList<SessionEvent>,
++        monitorStatus: ForegroundStatus = ForegroundStatus.FOREGROUND,
++        overlayVisible: Boolean = true
++    ): SystemWatchdog = SystemWatchdog(
++        context = context,
++        scope = scope,
++        clock = FakeClock(),
++        foregroundMonitor = FakeMonitor(monitorStatus),
++        overlayController = FakeOverlay(overlayVisible),
++        targetPackage = { "com.microsoft.teams" },
++        onEvent = { events.add(it) }
++    )
++
++    @Test
++    fun `pantalla apagada emite ScreenOff`() = runTest(UnconfinedTestDispatcher()) {
++        val events = mutableListOf<SessionEvent>()
++        val watchdog = createWatchdog(backgroundScope, events)
++        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
++        Shadows.shadowOf(powerManager).setIsInteractive(false)
++
++        watchdog.start()
++        advanceTimeBy(SessionConstants.WATCHDOG_POLL_MS + 100)
++        watchdog.stop()
++
++        assertTrue(events.contains(SessionEvent.ScreenOff))
++    }
++
++    @Test
++    fun `permiso revocado emite PermissionRevoked`() = runTest(UnconfinedTestDispatcher()) {
++        val events = mutableListOf<SessionEvent>()
++        val watchdog = createWatchdog(backgroundScope, events)
++        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
++        Shadows.shadowOf(powerManager).setIsInteractive(true)
++
++        watchdog.start()
++        advanceTimeBy(SessionConstants.WATCHDOG_POLL_MS + 100)
++        watchdog.stop()
++
++        assertTrue(events.contains(SessionEvent.PermissionRevoked))
++    }
++
++    @Test
++    fun `overlay ausente emite OverlayMissing`() = runTest(UnconfinedTestDispatcher()) {
++        val events = mutableListOf<SessionEvent>()
++        val watchdog = createWatchdog(backgroundScope, events, overlayVisible = false)
++        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
++        Shadows.shadowOf(powerManager).setIsInteractive(true)
++        org.robolectric.shadows.ShadowSettings.setCanDrawOverlays(true)
++
++        watchdog.start()
++        advanceTimeBy(SessionConstants.WATCHDOG_POLL_MS + 100)
++        watchdog.stop()
++
++        assertTrue(events.contains(SessionEvent.OverlayMissing))
++    }
++
++    @Test
++    fun `app objetivo fuera de primer plano emite TargetLeftForeground`() = runTest(UnconfinedTestDispatcher()) {
++        val events = mutableListOf<SessionEvent>()
++        val watchdog = createWatchdog(backgroundScope, events, monitorStatus = ForegroundStatus.NOT_FOREGROUND)
++        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
++        Shadows.shadowOf(powerManager).setIsInteractive(true)
++        org.robolectric.shadows.ShadowSettings.setCanDrawOverlays(true)
++
++        watchdog.start()
++        advanceTimeBy(SessionConstants.WATCHDOG_POLL_MS + 100)
++        watchdog.stop()
++
++        assertTrue(events.contains(SessionEvent.TargetLeftForeground))
++    }
++
++    @Test
++    fun `bateria baja emite BatteryWarning`() = runTest(UnconfinedTestDispatcher()) {
++        val events = mutableListOf<SessionEvent>()
++        val watchdog = createWatchdog(backgroundScope, events)
++        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
++        Shadows.shadowOf(powerManager).setIsInteractive(true)
++        org.robolectric.shadows.ShadowSettings.setCanDrawOverlays(true)
++        val batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
++        Shadows.shadowOf(batteryManager).setIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY, SessionConstants.BATTERY_WARNING_LEVEL)
++
++        watchdog.start()
++        advanceTimeBy(SessionConstants.WATCHDOG_POLL_MS + 100)
++        watchdog.stop()
++
++        assertTrue(events.any { it is SessionEvent.BatteryWarning })
++    }
++
++    @Test
++    fun `bateria critica emite BatteryCritical`() = runTest(UnconfinedTestDispatcher()) {
++        val events = mutableListOf<SessionEvent>()
++        val watchdog = createWatchdog(backgroundScope, events)
++        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
++        Shadows.shadowOf(powerManager).setIsInteractive(true)
++        org.robolectric.shadows.ShadowSettings.setCanDrawOverlays(true)
++        val batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
++        Shadows.shadowOf(batteryManager).setIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY, SessionConstants.BATTERY_CRITICAL_LEVEL)
++
++        watchdog.start()
++        advanceTimeBy(SessionConstants.WATCHDOG_POLL_MS + 100)
++        watchdog.stop()
++
++        assertTrue(events.any { it is SessionEvent.BatteryCritical })
++    }
++}

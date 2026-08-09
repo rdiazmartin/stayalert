@@ -1,0 +1,597 @@
+diff --git a/_bmad-output/implementation-artifacts/sprint-status.yaml b/_bmad-output/implementation-artifacts/sprint-status.yaml
+index b97ce1d..10dab03 100644
+--- a/_bmad-output/implementation-artifacts/sprint-status.yaml
++++ b/_bmad-output/implementation-artifacts/sprint-status.yaml
+@@ -56,7 +56,7 @@ development_status:
+   epic-1-retrospective: optional
+   epic-2: in-progress
+   2-1-nucleo-de-sesion: done
+-  2-2-despliegue-secuencial-y-overlay-de-aislamiento: backlog
++  2-2-despliegue-secuencial-y-overlay-de-aislamiento: review
+   2-3-patron-de-salida: backlog
+   2-4-servicio-en-primer-plano-y-notificaciones: backlog
+   2-5-watchdog-de-sesion: backlog
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index 0b92102..9003aa8 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -1,7 +1,10 @@
+ <?xml version="1.0" encoding="utf-8"?>
+-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
++<manifest xmlns:android="http://schemas.android.com/apk/res/android"
++    xmlns:tools="http://schemas.android.com/tools">
+ 
+     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
++    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
++    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
+ 
+     <queries>
+         <package android:name="com.microsoft.teams" />
+diff --git a/app/src/main/java/com/stayalert/domain/ForegroundMonitor.kt b/app/src/main/java/com/stayalert/domain/ForegroundMonitor.kt
+new file mode 100644
+index 0000000..3d3bf65
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/domain/ForegroundMonitor.kt
+@@ -0,0 +1,11 @@
++package com.stayalert.domain
++
++enum class ForegroundStatus {
++    FOREGROUND,
++    NOT_FOREGROUND,
++    UNKNOWN
++}
++
++interface ForegroundMonitor {
++    suspend fun status(packageName: String): ForegroundStatus
++}
+diff --git a/app/src/main/java/com/stayalert/domain/LaunchError.kt b/app/src/main/java/com/stayalert/domain/LaunchError.kt
+new file mode 100644
+index 0000000..221b8db
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/domain/LaunchError.kt
+@@ -0,0 +1,7 @@
++package com.stayalert.domain
++
++sealed class LaunchError(message: String) : Exception(message) {
++    data object PackageNotInstalled : LaunchError("paquete no instalado")
++    data object ActivityNotFound : LaunchError("actividad no resuelta")
++    data class SystemFailure(override val cause: Throwable) : LaunchError(cause.message ?: "fallo del sistema")
++}
+diff --git a/app/src/main/java/com/stayalert/domain/OverlayController.kt b/app/src/main/java/com/stayalert/domain/OverlayController.kt
+new file mode 100644
+index 0000000..3ef24aa
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/domain/OverlayController.kt
+@@ -0,0 +1,7 @@
++package com.stayalert.domain
++
++interface OverlayController {
++    fun show()
++    fun hide()
++    fun isVisible(): Boolean
++}
+diff --git a/app/src/main/java/com/stayalert/domain/SessionConstants.kt b/app/src/main/java/com/stayalert/domain/SessionConstants.kt
+new file mode 100644
+index 0000000..84f4392
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/domain/SessionConstants.kt
+@@ -0,0 +1,11 @@
++package com.stayalert.domain
++
++object SessionConstants {
++    const val LAUNCH_DELAY_MS = 1000L
++    const val OVERLAY_DEPLOY_SLA_MS = 500L
++    const val PATTERN_WINDOW_MS = 500L
++    const val WATCHDOG_POLL_MS = 2000L
++    const val BATTERY_WARNING_LEVEL = 15
++    const val BATTERY_CRITICAL_LEVEL = 5
++    const val WATCHDOG_SLA_MS = 5000L
++}
+diff --git a/app/src/main/java/com/stayalert/domain/TargetApp.kt b/app/src/main/java/com/stayalert/domain/TargetApp.kt
+new file mode 100644
+index 0000000..c28c4da
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/domain/TargetApp.kt
+@@ -0,0 +1,6 @@
++package com.stayalert.domain
++
++data class TargetApp(
++    val packageName: String,
++    val activityName: String
++)
+diff --git a/app/src/main/java/com/stayalert/domain/TargetAppLauncher.kt b/app/src/main/java/com/stayalert/domain/TargetAppLauncher.kt
+new file mode 100644
+index 0000000..f33b6d2
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/domain/TargetAppLauncher.kt
+@@ -0,0 +1,5 @@
++package com.stayalert.domain
++
++interface TargetAppLauncher {
++    suspend fun launch(target: TargetApp): Result<Unit>
++}
+diff --git a/app/src/main/java/com/stayalert/system/IntentLauncher.kt b/app/src/main/java/com/stayalert/system/IntentLauncher.kt
+new file mode 100644
+index 0000000..09da050
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/system/IntentLauncher.kt
+@@ -0,0 +1,28 @@
++package com.stayalert.system
++
++import android.content.Context
++import android.content.Intent
++import com.stayalert.domain.LaunchError
++import com.stayalert.domain.TargetApp
++import com.stayalert.domain.TargetAppLauncher
++
++class IntentLauncher(private val context: Context) : TargetAppLauncher {
++
++    override suspend fun launch(target: TargetApp): Result<Unit> {
++        val intent = Intent(Intent.ACTION_MAIN)
++            .setClassName(target.packageName, target.activityName)
++            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
++
++        return try {
++            val resolveInfo = context.packageManager.resolveActivity(intent, 0)
++            if (resolveInfo == null) {
++                Result.failure(LaunchError.ActivityNotFound)
++            } else {
++                context.startActivity(intent)
++                Result.success(Unit)
++            }
++        } catch (e: Exception) {
++            Result.failure(LaunchError.SystemFailure(e))
++        }
++    }
++}
+diff --git a/app/src/main/java/com/stayalert/system/SessionCommandHandler.kt b/app/src/main/java/com/stayalert/system/SessionCommandHandler.kt
+new file mode 100644
+index 0000000..6f1ed77
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/system/SessionCommandHandler.kt
+@@ -0,0 +1,76 @@
++package com.stayalert.system
++
++import com.stayalert.data.SettingsRepository
++import com.stayalert.domain.Clock
++import com.stayalert.domain.ForegroundMonitor
++import com.stayalert.domain.ForegroundStatus
++import com.stayalert.domain.LaunchError
++import com.stayalert.domain.OverlayController
++import com.stayalert.domain.SessionCommand
++import com.stayalert.domain.SessionConstants
++import com.stayalert.domain.SessionEvent
++import com.stayalert.domain.TargetApp
++import com.stayalert.domain.TargetAppLauncher
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.delay
++import kotlinx.coroutines.flow.first
++import kotlinx.coroutines.launch
++
++class SessionCommandHandler(
++    private val scope: CoroutineScope,
++    private val settingsRepository: SettingsRepository,
++    private val targetAppLauncher: TargetAppLauncher,
++    private val foregroundMonitor: ForegroundMonitor,
++    private val overlayController: OverlayController,
++    private val clock: Clock,
++    private val onEvent: (SessionEvent) -> Unit
++) {
++
++    fun handle(command: SessionCommand) {
++        when (command) {
++            SessionCommand.LaunchTarget -> launchTarget()
++            SessionCommand.ShowOverlay -> overlayController.show()
++            SessionCommand.HideOverlay -> overlayController.hide()
++            SessionCommand.StartFgs,
++            SessionCommand.StopFgs,
++            SessionCommand.StartWatchdog,
++            SessionCommand.StopWatchdog -> {
++                // no-op: FGS y watchdog en stories 2.4/2.5
++            }
++        }
++    }
++
++    private fun launchTarget() {
++        scope.launch {
++            val target = TargetApp(
++                packageName = settingsRepository.targetPackage.first(),
++                activityName = settingsRepository.targetActivity.first()
++            )
++            val result = targetAppLauncher.launch(target)
++            if (result.isFailure) {
++                val error = result.exceptionOrNull()
++                onEvent(
++                    SessionEvent.LaunchFailed(
++                        when (error) {
++                            is LaunchError.PackageNotInstalled -> "paquete no instalado"
++                            is LaunchError.ActivityNotFound -> "actividad no resuelta"
++                            is LaunchError.SystemFailure -> error.cause.message ?: "fallo del sistema"
++                            else -> "fallo desconocido"
++                        }
++                    )
++                )
++                return@launch
++            }
++
++            delay(SessionConstants.LAUNCH_DELAY_MS)
++
++            val status = foregroundMonitor.status(target.packageName)
++            if (status == ForegroundStatus.NOT_FOREGROUND) {
++                onEvent(SessionEvent.LaunchFailed("la app objetivo no está en primer plano"))
++                return@launch
++            }
++
++            overlayController.show()
++        }
++    }
++}
+diff --git a/app/src/main/java/com/stayalert/system/SystemOverlayController.kt b/app/src/main/java/com/stayalert/system/SystemOverlayController.kt
+new file mode 100644
+index 0000000..d5f6190
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/system/SystemOverlayController.kt
+@@ -0,0 +1,82 @@
++package com.stayalert.system
++
++import android.content.Context
++import android.graphics.Color
++import android.graphics.PixelFormat
++import android.os.Build
++import android.view.Gravity
++import android.view.View
++import android.view.WindowManager
++import android.view.WindowManager.LayoutParams
++import com.stayalert.domain.OverlayController
++import com.stayalert.domain.SessionConstants
++import com.stayalert.domain.SessionEvent
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.launch
++
++class SystemOverlayController(
++    private val context: Context,
++    private val scope: CoroutineScope,
++    private val onEvent: (SessionEvent) -> Unit
++) : OverlayController {
++
++    private var overlayView: View? = null
++    private var windowManager: WindowManager? = null
++
++    override fun show() {
++        scope.launch {
++            val start = System.currentTimeMillis()
++            try {
++                val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
++                val view = View(context).apply {
++                    setBackgroundColor(Color.BLACK)
++                }
++                val params = LayoutParams(
++                    LayoutParams.MATCH_PARENT,
++                    LayoutParams.MATCH_PARENT,
++                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
++                        LayoutParams.TYPE_APPLICATION_OVERLAY
++                    } else {
++                        @Suppress("DEPRECATION")
++                        LayoutParams.TYPE_PHONE
++                    },
++                    LayoutParams.FLAG_NOT_FOCUSABLE or
++                        LayoutParams.FLAG_LAYOUT_IN_SCREEN or
++                        LayoutParams.FLAG_KEEP_SCREEN_ON or
++                        LayoutParams.FLAG_SECURE,
++                    PixelFormat.OPAQUE
++                ).apply {
++                    gravity = Gravity.TOP or Gravity.START
++                }
++                wm.addView(view, params)
++                overlayView = view
++                windowManager = wm
++                val deployTime = System.currentTimeMillis() - start
++                if (deployTime > SessionConstants.OVERLAY_DEPLOY_SLA_MS) {
++                    android.util.Log.w("OverlayController", "Overlay desplegado en ${deployTime}ms (SLA ${SessionConstants.OVERLAY_DEPLOY_SLA_MS}ms)")
++                }
++                onEvent(SessionEvent.OverlayShown)
++            } catch (e: Exception) {
++                android.util.Log.e("OverlayController", "No se pudo desplegar el overlay", e)
++                onEvent(SessionEvent.OverlayFailed(e.message ?: "desconocido"))
++            }
++        }
++    }
++
++    override fun hide() {
++        scope.launch {
++            try {
++                overlayView?.let { view ->
++                    windowManager?.removeView(view)
++                }
++            } catch (e: Exception) {
++                android.util.Log.e("OverlayController", "No se pudo ocultar el overlay", e)
++            } finally {
++                overlayView = null
++                windowManager = null
++            }
++        }
++    }
++
++    override fun isVisible(): Boolean = overlayView != null
++}
+diff --git a/app/src/main/java/com/stayalert/system/UsageStatsForegroundMonitor.kt b/app/src/main/java/com/stayalert/system/UsageStatsForegroundMonitor.kt
+new file mode 100644
+index 0000000..2ad8cfe
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/system/UsageStatsForegroundMonitor.kt
+@@ -0,0 +1,34 @@
++package com.stayalert.system
++
++import android.app.usage.UsageStatsManager
++import android.content.Context
++import com.stayalert.domain.ForegroundMonitor
++import com.stayalert.domain.ForegroundStatus
++
++class UsageStatsForegroundMonitor(private val context: Context) : ForegroundMonitor {
++
++    override suspend fun status(packageName: String): ForegroundStatus {
++        val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
++            ?: return ForegroundStatus.UNKNOWN
++
++        val now = System.currentTimeMillis()
++        val events = usageStatsManager.queryEvents(now - 60_000, now)
++            ?: return ForegroundStatus.UNKNOWN
++
++        var lastEventType = -1
++        val event = android.app.usage.UsageEvents.Event()
++        while (events.hasNextEvent()) {
++            events.getNextEvent(event)
++            if (event.packageName == packageName) {
++                lastEventType = event.eventType
++            }
++        }
++
++        return when (lastEventType) {
++            android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED -> ForegroundStatus.FOREGROUND
++            android.app.usage.UsageEvents.Event.ACTIVITY_PAUSED,
++            android.app.usage.UsageEvents.Event.ACTIVITY_STOPPED -> ForegroundStatus.NOT_FOREGROUND
++            else -> ForegroundStatus.UNKNOWN
++        }
++    }
++}
+diff --git a/app/src/main/java/com/stayalert/ui/MainActivity.kt b/app/src/main/java/com/stayalert/ui/MainActivity.kt
+index 620a07b..a6a1247 100644
+--- a/app/src/main/java/com/stayalert/ui/MainActivity.kt
++++ b/app/src/main/java/com/stayalert/ui/MainActivity.kt
+@@ -42,6 +42,10 @@ import com.stayalert.domain.SessionValidator
+ import com.stayalert.domain.SystemClock
+ import com.stayalert.domain.TerminationReason
+ import com.stayalert.domain.ValidationFailure
++import com.stayalert.system.IntentLauncher
++import com.stayalert.system.SessionCommandHandler
++import com.stayalert.system.SystemOverlayController
++import com.stayalert.system.UsageStatsForegroundMonitor
+ import com.stayalert.ui.components.ResponsibleUseNotice
+ import com.stayalert.ui.settings.SettingsScreen
+ import com.stayalert.ui.settings.SettingsViewModel
+@@ -71,6 +75,8 @@ class MainActivity : ComponentActivity() {
+         SystemBatteryOptimizationChecker(applicationContext)
+     }
+ 
++    private lateinit var sessionCommandHandler: SessionCommandHandler
++
+     private val sessionController by lazy {
+         SessionController(
+             scope = lifecycleScope,
+@@ -79,13 +85,36 @@ class MainActivity : ComponentActivity() {
+                 settingsRepository,
+                 appInstalledChecker
+             ),
+-            onCommand = { /* no-op: componentes SO en stories 2.2-2.5 */ }
++            onCommand = { command ->
++                sessionCommandHandler.handle(command)
++            }
+         )
+     }
+ 
++    private val overlayController by lazy {
++        SystemOverlayController(
++            context = applicationContext,
++            scope = lifecycleScope,
++            onEvent = { event -> sessionController.emit(event) }
++        )
++    }
++
++    private val commandHandler by lazy {
++        SessionCommandHandler(
++            scope = lifecycleScope,
++            settingsRepository = settingsRepository,
++            targetAppLauncher = IntentLauncher(applicationContext),
++            foregroundMonitor = UsageStatsForegroundMonitor(applicationContext),
++            overlayController = overlayController,
++            clock = SystemClock(),
++            onEvent = { event -> sessionController.emit(event) }
++        ).also { sessionCommandHandler = it }
++    }
++
+     override fun onCreate(savedInstanceState: Bundle?) {
+         enableEdgeToEdge()
+         super.onCreate(savedInstanceState)
++        commandHandler
+         setContent {
+             StayAlertTheme {
+                 val mainViewModel: MainViewModel = viewModel(
+diff --git a/app/src/test/java/com/stayalert/system/IntentLauncherTest.kt b/app/src/test/java/com/stayalert/system/IntentLauncherTest.kt
+new file mode 100644
+index 0000000..f02432c
+--- /dev/null
++++ b/app/src/test/java/com/stayalert/system/IntentLauncherTest.kt
+@@ -0,0 +1,57 @@
++package com.stayalert.system
++
++import android.content.Context
++import androidx.test.core.app.ApplicationProvider
++import com.stayalert.domain.LaunchError
++import com.stayalert.domain.TargetApp
++import kotlinx.coroutines.test.runTest
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertTrue
++import org.junit.Test
++import org.junit.runner.RunWith
++import org.robolectric.RobolectricTestRunner
++import org.robolectric.annotation.Config
++
++@RunWith(RobolectricTestRunner::class)
++@Config(sdk = [34])
++class IntentLauncherTest {
++
++    private val context: Context = ApplicationProvider.getApplicationContext()
++
++    @Test
++    fun `launch devuelve exito para una actividad existente`() = runTest {
++        val launcher = IntentLauncher(context)
++        val result = launcher.launch(
++            TargetApp(
++                packageName = context.packageName,
++                activityName = "com.stayalert.ui.MainActivity"
++            )
++        )
++        assertTrue(result.isSuccess)
++    }
++
++    @Test
++    fun `launch devuelve ActivityNotFound para una actividad inexistente`() = runTest {
++        val launcher = IntentLauncher(context)
++        val result = launcher.launch(
++            TargetApp(
++                packageName = context.packageName,
++                activityName = "com.stayalert.NoExiste"
++            )
++        )
++        assertTrue(result.isFailure)
++        assertEquals(LaunchError.ActivityNotFound, result.exceptionOrNull())
++    }
++
++    @Test
++    fun `launch devuelve ActivityNotFound para un paquete inexistente`() = runTest {
++        val launcher = IntentLauncher(context)
++        val result = launcher.launch(
++            TargetApp(
++                packageName = "com.paquete.inexistente.xyz",
++                activityName = "com.paquete.inexistente.xyz.MainActivity"
++            )
++        )
++        assertTrue(result.isFailure)
++    }
++}
+diff --git a/app/src/test/java/com/stayalert/system/SessionCommandHandlerTest.kt b/app/src/test/java/com/stayalert/system/SessionCommandHandlerTest.kt
+new file mode 100644
+index 0000000..39e9593
+--- /dev/null
++++ b/app/src/test/java/com/stayalert/system/SessionCommandHandlerTest.kt
+@@ -0,0 +1,110 @@
++package com.stayalert.system
++
++import com.stayalert.data.SettingsRepository
++import com.stayalert.domain.Clock
++import com.stayalert.domain.ForegroundMonitor
++import com.stayalert.domain.ForegroundStatus
++import com.stayalert.domain.LaunchError
++import com.stayalert.domain.OverlayController
++import com.stayalert.domain.SessionCommand
++import com.stayalert.domain.SessionConstants
++import com.stayalert.domain.SessionEvent
++import com.stayalert.domain.TargetApp
++import com.stayalert.domain.TargetAppLauncher
++import kotlinx.coroutines.ExperimentalCoroutinesApi
++import kotlinx.coroutines.flow.Flow
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.test.UnconfinedTestDispatcher
++import kotlinx.coroutines.test.advanceTimeBy
++import kotlinx.coroutines.test.runTest
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++@OptIn(ExperimentalCoroutinesApi::class)
++class SessionCommandHandlerTest {
++
++    private class FakeSettingsRepository : SettingsRepository {
++        override val noticeAccepted: Flow<Boolean> = MutableStateFlow(true)
++        override val targetPackage: Flow<String> = MutableStateFlow("com.microsoft.teams")
++        override val targetActivity: Flow<String> = MutableStateFlow("com.microsoft.teams.activities.MainActivity")
++        override suspend fun setNoticeAccepted(value: Boolean) {}
++        override suspend fun setTargetPackage(value: String) {}
++        override suspend fun setTargetActivity(value: String) {}
++    }
++
++    private class FakeLauncher(private val success: Boolean) : TargetAppLauncher {
++        override suspend fun launch(target: TargetApp): Result<Unit> =
++            if (success) Result.success(Unit) else Result.failure(LaunchError.PackageNotInstalled)
++    }
++
++    private class FakeMonitor(private val status: ForegroundStatus) : ForegroundMonitor {
++        override suspend fun status(packageName: String): ForegroundStatus = status
++    }
++
++    private class FakeClock : Clock {
++        override fun now(): Long = 0
++    }
++
++    private class FakeOverlay(private val onEvent: (SessionEvent) -> Unit) : OverlayController {
++        var shown = false
++        override fun show() {
++            shown = true
++            onEvent(SessionEvent.OverlayShown)
++        }
++        override fun hide() { shown = false }
++        override fun isVisible(): Boolean = shown
++    }
++
++    private fun createHandler(
++        scope: kotlinx.coroutines.CoroutineScope,
++        events: MutableList<SessionEvent>,
++        overlay: FakeOverlay,
++        launcherSuccess: Boolean = true,
++        monitorStatus: ForegroundStatus = ForegroundStatus.FOREGROUND
++    ): SessionCommandHandler = SessionCommandHandler(
++        scope = scope,
++        settingsRepository = FakeSettingsRepository(),
++        targetAppLauncher = FakeLauncher(launcherSuccess),
++        foregroundMonitor = FakeMonitor(monitorStatus),
++        overlayController = overlay,
++        clock = FakeClock(),
++        onEvent = { events.add(it) }
++    )
++
++    @Test
++    fun `launch exitoso despliega el overlay tras el delay`() = runTest(UnconfinedTestDispatcher()) {
++        val events = mutableListOf<SessionEvent>()
++        val overlay = FakeOverlay { events.add(it) }
++        val handler = createHandler(backgroundScope, events, overlay)
++
++        handler.handle(SessionCommand.LaunchTarget)
++        advanceTimeBy(SessionConstants.LAUNCH_DELAY_MS + 100)
++        assertTrue(overlay.shown)
++        assertTrue(events.contains(SessionEvent.OverlayShown))
++    }
++
++    @Test
++    fun `launch fallido emite LaunchFailed sin overlay`() = runTest(UnconfinedTestDispatcher()) {
++        val events = mutableListOf<SessionEvent>()
++        val overlay = FakeOverlay { events.add(it) }
++        val handler = createHandler(backgroundScope, events, overlay, launcherSuccess = false)
++
++        handler.handle(SessionCommand.LaunchTarget)
++        advanceTimeBy(SessionConstants.LAUNCH_DELAY_MS + 100)
++        assertTrue(events.any { it is SessionEvent.LaunchFailed })
++        assertEquals(false, overlay.shown)
++    }
++
++    @Test
++    fun `app objetivo no en primer plano aborta sin overlay`() = runTest(UnconfinedTestDispatcher()) {
++        val events = mutableListOf<SessionEvent>()
++        val overlay = FakeOverlay { events.add(it) }
++        val handler = createHandler(backgroundScope, events, overlay, monitorStatus = ForegroundStatus.NOT_FOREGROUND)
++
++        handler.handle(SessionCommand.LaunchTarget)
++        advanceTimeBy(SessionConstants.LAUNCH_DELAY_MS + 100)
++        assertTrue(events.any { it is SessionEvent.LaunchFailed })
++        assertEquals(false, overlay.shown)
++    }
++}

@@ -1,0 +1,846 @@
+diff --git a/_bmad-output/implementation-artifacts/sprint-status.yaml b/_bmad-output/implementation-artifacts/sprint-status.yaml
+index 0ab34d4..963c0ba 100644
+--- a/_bmad-output/implementation-artifacts/sprint-status.yaml
++++ b/_bmad-output/implementation-artifacts/sprint-status.yaml
+@@ -54,8 +54,8 @@ development_status:
+   1-3-auditoria-y-guiado-de-permisos: done
+   1-4-configuracion-de-la-app-objetivo-y-exencion-de-bateria: done
+   epic-1-retrospective: optional
+-  epic-2: backlog
+-  2-1-nucleo-de-sesion: backlog
++  epic-2: in-progress
++  2-1-nucleo-de-sesion: review
+   2-2-despliegue-secuencial-y-overlay-de-aislamiento: backlog
+   2-3-patron-de-salida: backlog
+   2-4-servicio-en-primer-plano-y-notificaciones: backlog
+diff --git a/app/src/main/java/com/stayalert/domain/Clock.kt b/app/src/main/java/com/stayalert/domain/Clock.kt
+new file mode 100644
+index 0000000..51bc5f5
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/domain/Clock.kt
+@@ -0,0 +1,5 @@
++package com.stayalert.domain
++
++interface Clock {
++    fun now(): Long
++}
+diff --git a/app/src/main/java/com/stayalert/domain/SessionCommand.kt b/app/src/main/java/com/stayalert/domain/SessionCommand.kt
+new file mode 100644
+index 0000000..2c496a2
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/domain/SessionCommand.kt
+@@ -0,0 +1,11 @@
++package com.stayalert.domain
++
++sealed class SessionCommand {
++    data object ShowOverlay : SessionCommand()
++    data object HideOverlay : SessionCommand()
++    data object StartFgs : SessionCommand()
++    data object StopFgs : SessionCommand()
++    data object StartWatchdog : SessionCommand()
++    data object StopWatchdog : SessionCommand()
++    data object LaunchTarget : SessionCommand()
++}
+diff --git a/app/src/main/java/com/stayalert/domain/SessionController.kt b/app/src/main/java/com/stayalert/domain/SessionController.kt
+new file mode 100644
+index 0000000..1cfe4bc
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/domain/SessionController.kt
+@@ -0,0 +1,150 @@
++package com.stayalert.domain
++
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.channels.Channel
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.launch
++
++class SessionController(
++    private val scope: CoroutineScope,
++    private val validator: SessionValidator,
++    private val onCommand: (SessionCommand) -> Unit
++) {
++
++    private val _state = MutableStateFlow<SessionState>(SessionState.Inactiva)
++    val state: StateFlow<SessionState> = _state.asStateFlow()
++
++    private val events = Channel<SessionEvent>(Channel.UNLIMITED)
++
++    private val _lastTerminationReason = MutableStateFlow<TerminationReason?>(null)
++    val lastTerminationReason: StateFlow<TerminationReason?> = _lastTerminationReason.asStateFlow()
++
++    init {
++        scope.launch {
++            for (event in events) {
++                handle(event)
++            }
++        }
++    }
++
++    suspend fun startSession(): ValidationFailure? {
++        val failure = validator.validate()
++        if (failure != null) return failure
++        _state.value = SessionState.Lanzando
++        onCommand(SessionCommand.LaunchTarget)
++        return null
++    }
++
++    fun emit(event: SessionEvent) {
++        events.trySend(event)
++    }
++
++    private fun handle(event: SessionEvent) {
++        when (val current = _state.value) {
++            SessionState.Inactiva -> handleInactiva(event)
++            SessionState.Lanzando -> handleLanzando(event)
++            SessionState.Aislada -> handleAislada(event)
++            SessionState.Deteniendo -> handleDeteniendo(event)
++        }
++    }
++
++    private fun handleInactiva(event: SessionEvent) {
++        when (event) {
++            is SessionEvent.StopRequested,
++            is SessionEvent.PatternDetected,
++            is SessionEvent.OverlayShown,
++            is SessionEvent.OverlayFailed,
++            is SessionEvent.LaunchFailed,
++            is SessionEvent.ScreenOff,
++            is SessionEvent.OverlayMissing,
++            is SessionEvent.PermissionRevoked,
++            is SessionEvent.TargetLeftForeground,
++            is SessionEvent.TargetCrashed,
++            is SessionEvent.HideOverlayWindows,
++            is SessionEvent.BatteryWarning,
++            is SessionEvent.BatteryCritical -> {
++                // no-op: eventos no admitidos en Inactiva (AD-9)
++            }
++        }
++    }
++
++    private fun handleLanzando(event: SessionEvent) {
++        when (event) {
++            is SessionEvent.OverlayShown -> {
++                _state.value = SessionState.Aislada
++                onCommand(SessionCommand.StartFgs)
++                onCommand(SessionCommand.StartWatchdog)
++            }
++            is SessionEvent.LaunchFailed -> terminate(TerminationReason.LaunchFailed)
++            is SessionEvent.OverlayFailed -> terminate(TerminationReason.OverlayFailed)
++            is SessionEvent.StopRequested -> terminate(TerminationReason.ManualStop)
++            is SessionEvent.PatternDetected,
++            is SessionEvent.ScreenOff,
++            is SessionEvent.OverlayMissing,
++            is SessionEvent.PermissionRevoked,
++            is SessionEvent.TargetLeftForeground,
++            is SessionEvent.TargetCrashed,
++            is SessionEvent.HideOverlayWindows,
++            is SessionEvent.BatteryWarning,
++            is SessionEvent.BatteryCritical -> {
++                // no-op: anomalías no admitidas en Lanzando (AD-9)
++            }
++        }
++    }
++
++    private fun handleAislada(event: SessionEvent) {
++        when (event) {
++            is SessionEvent.PatternDetected -> terminate(TerminationReason.Pattern)
++            is SessionEvent.StopRequested -> terminate(TerminationReason.ManualStop)
++            is SessionEvent.ScreenOff -> terminate(TerminationReason.ScreenOff)
++            is SessionEvent.OverlayMissing -> terminate(TerminationReason.OverlayMissing)
++            is SessionEvent.PermissionRevoked -> terminate(TerminationReason.PermissionRevoked)
++            is SessionEvent.TargetLeftForeground -> terminate(TerminationReason.TargetLeftForeground)
++            is SessionEvent.TargetCrashed -> terminate(TerminationReason.TargetCrashed)
++            is SessionEvent.HideOverlayWindows -> terminate(TerminationReason.HideOverlayWindows)
++            is SessionEvent.BatteryCritical -> terminate(TerminationReason.BatteryCritical)
++            is SessionEvent.BatteryWarning -> {
++                // no-op: aviso de batería no termina la sesión (FR-16)
++            }
++            is SessionEvent.OverlayShown,
++            is SessionEvent.OverlayFailed,
++            is SessionEvent.LaunchFailed -> {
++                // no-op: eventos de despliegue no admitidos en Aislada (AD-9)
++            }
++        }
++    }
++
++    private fun handleDeteniendo(event: SessionEvent) {
++        when (event) {
++            is SessionEvent.StopRequested,
++            is SessionEvent.PatternDetected,
++            is SessionEvent.ScreenOff,
++            is SessionEvent.OverlayMissing,
++            is SessionEvent.PermissionRevoked,
++            is SessionEvent.TargetLeftForeground,
++            is SessionEvent.TargetCrashed,
++            is SessionEvent.HideOverlayWindows,
++            is SessionEvent.BatteryCritical,
++            is SessionEvent.LaunchFailed,
++            is SessionEvent.OverlayFailed -> {
++                // no-op: terminación idempotente (AD-9)
++            }
++            is SessionEvent.OverlayShown,
++            is SessionEvent.BatteryWarning -> {
++                // no-op
++            }
++        }
++    }
++
++    private fun terminate(reason: TerminationReason) {
++        if (_state.value is SessionState.Deteniendo || _state.value is SessionState.Inactiva) return
++        _state.value = SessionState.Deteniendo
++        _lastTerminationReason.value = reason
++        onCommand(SessionCommand.HideOverlay)
++        onCommand(SessionCommand.StopFgs)
++        onCommand(SessionCommand.StopWatchdog)
++        _state.value = SessionState.Inactiva
++    }
++}
+diff --git a/app/src/main/java/com/stayalert/domain/SessionEvent.kt b/app/src/main/java/com/stayalert/domain/SessionEvent.kt
+new file mode 100644
+index 0000000..d712039
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/domain/SessionEvent.kt
+@@ -0,0 +1,17 @@
++package com.stayalert.domain
++
++sealed class SessionEvent {
++    data object PatternDetected : SessionEvent()
++    data object StopRequested : SessionEvent()
++    data object OverlayShown : SessionEvent()
++    data class OverlayFailed(val cause: String) : SessionEvent()
++    data class LaunchFailed(val cause: String) : SessionEvent()
++    data object ScreenOff : SessionEvent()
++    data object OverlayMissing : SessionEvent()
++    data object PermissionRevoked : SessionEvent()
++    data object TargetLeftForeground : SessionEvent()
++    data object TargetCrashed : SessionEvent()
++    data object HideOverlayWindows : SessionEvent()
++    data class BatteryWarning(val level: Int) : SessionEvent()
++    data class BatteryCritical(val level: Int) : SessionEvent()
++}
+diff --git a/app/src/main/java/com/stayalert/domain/SessionState.kt b/app/src/main/java/com/stayalert/domain/SessionState.kt
+new file mode 100644
+index 0000000..3b0547c
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/domain/SessionState.kt
+@@ -0,0 +1,8 @@
++package com.stayalert.domain
++
++sealed class SessionState {
++    data object Inactiva : SessionState()
++    data object Lanzando : SessionState()
++    data object Aislada : SessionState()
++    data object Deteniendo : SessionState()
++}
+diff --git a/app/src/main/java/com/stayalert/domain/SessionValidator.kt b/app/src/main/java/com/stayalert/domain/SessionValidator.kt
+new file mode 100644
+index 0000000..79ace61
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/domain/SessionValidator.kt
+@@ -0,0 +1,22 @@
++package com.stayalert.domain
++
++import com.stayalert.data.AppInstalledChecker
++import com.stayalert.data.PermissionAuditor
++import com.stayalert.data.SettingsRepository
++import kotlinx.coroutines.flow.first
++
++class SessionValidator(
++    private val permissionAuditor: PermissionAuditor,
++    private val settingsRepository: SettingsRepository,
++    private val appInstalledChecker: AppInstalledChecker
++) {
++
++    suspend fun validate(): ValidationFailure? {
++        if (!permissionAuditor.canDrawOverlays()) return ValidationFailure.PERMISSION_OVERLAY
++        if (!permissionAuditor.areNotificationsEnabled()) return ValidationFailure.PERMISSION_NOTIFICATIONS
++        if (!settingsRepository.noticeAccepted.first()) return ValidationFailure.NOTICE_NOT_ACCEPTED
++        val targetPackage = settingsRepository.targetPackage.first()
++        if (!appInstalledChecker.isInstalled(targetPackage)) return ValidationFailure.TARGET_NOT_INSTALLED
++        return null
++    }
++}
+diff --git a/app/src/main/java/com/stayalert/domain/SystemClock.kt b/app/src/main/java/com/stayalert/domain/SystemClock.kt
+new file mode 100644
+index 0000000..f7b172a
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/domain/SystemClock.kt
+@@ -0,0 +1,5 @@
++package com.stayalert.domain
++
++class SystemClock : Clock {
++    override fun now(): Long = android.os.SystemClock.elapsedRealtime()
++}
+diff --git a/app/src/main/java/com/stayalert/domain/TerminationReason.kt b/app/src/main/java/com/stayalert/domain/TerminationReason.kt
+new file mode 100644
+index 0000000..f2ed993
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/domain/TerminationReason.kt
+@@ -0,0 +1,15 @@
++package com.stayalert.domain
++
++enum class TerminationReason {
++    Pattern,
++    ManualStop,
++    ScreenOff,
++    OverlayMissing,
++    PermissionRevoked,
++    TargetLeftForeground,
++    TargetCrashed,
++    HideOverlayWindows,
++    BatteryCritical,
++    LaunchFailed,
++    OverlayFailed
++}
+diff --git a/app/src/main/java/com/stayalert/domain/ValidationFailure.kt b/app/src/main/java/com/stayalert/domain/ValidationFailure.kt
+new file mode 100644
+index 0000000..a4bbd5b
+--- /dev/null
++++ b/app/src/main/java/com/stayalert/domain/ValidationFailure.kt
+@@ -0,0 +1,8 @@
++package com.stayalert.domain
++
++enum class ValidationFailure {
++    PERMISSION_OVERLAY,
++    PERMISSION_NOTIFICATIONS,
++    NOTICE_NOT_ACCEPTED,
++    TARGET_NOT_INSTALLED
++}
+diff --git a/app/src/main/java/com/stayalert/ui/MainActivity.kt b/app/src/main/java/com/stayalert/ui/MainActivity.kt
+index ee4155a..f9fe474 100644
+--- a/app/src/main/java/com/stayalert/ui/MainActivity.kt
++++ b/app/src/main/java/com/stayalert/ui/MainActivity.kt
+@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.shape.RoundedCornerShape
+ import androidx.compose.material3.Button
+ import androidx.compose.material3.ButtonDefaults
++import androidx.compose.material3.CircularProgressIndicator
+ import androidx.compose.material3.Icon
+ import androidx.compose.material3.IconButton
+ import androidx.compose.material3.MaterialTheme
+@@ -29,11 +30,17 @@ import androidx.compose.ui.graphics.vector.ImageVector
+ import androidx.compose.ui.res.vectorResource
+ import androidx.compose.ui.unit.dp
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import androidx.lifecycle.lifecycleScope
+ import androidx.lifecycle.viewmodel.compose.viewModel
+ import com.stayalert.data.DataStoreSettingsRepository
+ import com.stayalert.data.SystemAppInstalledChecker
+ import com.stayalert.data.SystemBatteryOptimizationChecker
+ import com.stayalert.data.SystemPermissionAuditor
++import com.stayalert.domain.SessionController
++import com.stayalert.domain.SessionState
++import com.stayalert.domain.SessionValidator
++import com.stayalert.domain.SystemClock
++import com.stayalert.domain.ValidationFailure
+ import com.stayalert.ui.components.ResponsibleUseNotice
+ import com.stayalert.ui.settings.SettingsScreen
+ import com.stayalert.ui.settings.SettingsViewModel
+@@ -63,13 +70,25 @@ class MainActivity : ComponentActivity() {
+         SystemBatteryOptimizationChecker(applicationContext)
+     }
+ 
++    private val sessionController by lazy {
++        SessionController(
++            scope = lifecycleScope,
++            validator = SessionValidator(
++                permissionAuditor,
++                settingsRepository,
++                appInstalledChecker
++            ),
++            onCommand = { /* no-op: componentes SO en stories 2.2-2.5 */ }
++        )
++    }
++
+     override fun onCreate(savedInstanceState: Bundle?) {
+         enableEdgeToEdge()
+         super.onCreate(savedInstanceState)
+         setContent {
+             StayAlertTheme {
+                 val mainViewModel: MainViewModel = viewModel(
+-                    factory = MainViewModel.Factory(settingsRepository)
++                    factory = MainViewModel.Factory(settingsRepository, sessionController)
+                 )
+                 val settingsViewModel: SettingsViewModel = viewModel(
+                     factory = SettingsViewModel.Factory(
+@@ -103,6 +122,10 @@ fun MainScreen(
+     onOpenSettings: () -> Unit
+ ) {
+     val noticeAccepted by viewModel.noticeAccepted.collectAsStateWithLifecycle()
++    val sessionState by viewModel.sessionState.collectAsStateWithLifecycle()
++    val startError by viewModel.startError.collectAsStateWithLifecycle()
++
++    val isLanzando = sessionState is SessionState.Lanzando
+ 
+     Box(modifier = Modifier.fillMaxSize()) {
+         Column(
+@@ -121,8 +144,11 @@ fun MainScreen(
+             Spacer(modifier = Modifier.height(48.dp))
+ 
+             Button(
+-                onClick = { /* no-op: sesión no implementada aún */ },
+-                enabled = noticeAccepted,
++                onClick = {
++                    viewModel.clearStartError()
++                    viewModel.startSession()
++                },
++                enabled = noticeAccepted && !isLanzando,
+                 shape = RoundedCornerShape(999.dp),
+                 colors = ButtonDefaults.buttonColors(
+                     containerColor = Accent,
+@@ -131,11 +157,28 @@ fun MainScreen(
+                     disabledContentColor = SurfaceBase
+                 )
+             ) {
++                if (isLanzando) {
++                    CircularProgressIndicator(
++                        modifier = Modifier.height(20.dp),
++                        color = AccentOn,
++                        strokeWidth = 2.dp
++                    )
++                    Spacer(modifier = Modifier.height(8.dp))
++                }
+                 Text(
+-                    text = "Iniciar Jornada",
++                    text = if (isLanzando) "Abriendo app objetivo…" else "Iniciar Jornada",
+                     style = MaterialTheme.typography.labelLarge
+                 )
+             }
++
++            startError?.let { failure ->
++                Spacer(modifier = Modifier.height(16.dp))
++                Text(
++                    text = failure.message(),
++                    style = MaterialTheme.typography.bodySmall,
++                    color = MaterialTheme.colorScheme.error
++                )
++            }
+         }
+ 
+         IconButton(
+@@ -156,3 +199,10 @@ fun MainScreen(
+         ResponsibleUseNotice(onAccept = viewModel::acceptNotice)
+     }
+ }
++
++private fun ValidationFailure.message(): String = when (this) {
++    ValidationFailure.PERMISSION_OVERLAY -> "Falta el permiso de overlay. Tócalo para abrir Ajustes."
++    ValidationFailure.PERMISSION_NOTIFICATIONS -> "Falta el permiso de notificaciones. Tócalo para abrir Ajustes."
++    ValidationFailure.NOTICE_NOT_ACCEPTED -> "Debes aceptar el aviso de uso responsable."
++    ValidationFailure.TARGET_NOT_INSTALLED -> "La app objetivo no está instalada."
++}
+diff --git a/app/src/main/java/com/stayalert/ui/viewmodel/MainViewModel.kt b/app/src/main/java/com/stayalert/ui/viewmodel/MainViewModel.kt
+index f3312cc..6626cba 100644
+--- a/app/src/main/java/com/stayalert/ui/viewmodel/MainViewModel.kt
++++ b/app/src/main/java/com/stayalert/ui/viewmodel/MainViewModel.kt
+@@ -1,17 +1,21 @@
+ package com.stayalert.ui.viewmodel
+ 
+-import android.util.Log
+ import androidx.lifecycle.ViewModel
+ import androidx.lifecycle.ViewModelProvider
+ import androidx.lifecycle.viewModelScope
+ import com.stayalert.data.SettingsRepository
++import com.stayalert.domain.SessionController
++import com.stayalert.domain.SessionState
++import com.stayalert.domain.ValidationFailure
++import kotlinx.coroutines.flow.MutableStateFlow
+ import kotlinx.coroutines.flow.SharingStarted
+ import kotlinx.coroutines.flow.StateFlow
+ import kotlinx.coroutines.flow.stateIn
+ import kotlinx.coroutines.launch
+ 
+ class MainViewModel(
+-    private val settingsRepository: SettingsRepository
++    private val settingsRepository: SettingsRepository,
++    private val sessionController: SessionController
+ ) : ViewModel() {
+ 
+     val noticeAccepted: StateFlow<Boolean> = settingsRepository.noticeAccepted
+@@ -21,23 +25,39 @@ class MainViewModel(
+             initialValue = false
+         )
+ 
++    val sessionState: StateFlow<SessionState> = sessionController.state
++
++    private val _startError = MutableStateFlow<ValidationFailure?>(null)
++    val startError: StateFlow<ValidationFailure?> = _startError
++
+     fun acceptNotice() {
+         viewModelScope.launch {
+             try {
+                 settingsRepository.setNoticeAccepted(true)
+             } catch (e: Exception) {
+-                Log.e("MainViewModel", "No se pudo persistir la aceptación del aviso", e)
++                android.util.Log.e("MainViewModel", "No se pudo persistir la aceptación del aviso", e)
+             }
+         }
+     }
+ 
++    fun startSession() {
++        viewModelScope.launch {
++            _startError.value = sessionController.startSession()
++        }
++    }
++
++    fun clearStartError() {
++        _startError.value = null
++    }
++
+     class Factory(
+-        private val settingsRepository: SettingsRepository
++        private val settingsRepository: SettingsRepository,
++        private val sessionController: SessionController
+     ) : ViewModelProvider.Factory {
+         @Suppress("UNCHECKED_CAST")
+         override fun <T : ViewModel> create(modelClass: Class<T>): T {
+             require(modelClass.isAssignableFrom(MainViewModel::class.java))
+-            return MainViewModel(settingsRepository) as T
++            return MainViewModel(settingsRepository, sessionController) as T
+         }
+     }
+ }
+diff --git a/app/src/test/java/com/stayalert/domain/SessionControllerTest.kt b/app/src/test/java/com/stayalert/domain/SessionControllerTest.kt
+new file mode 100644
+index 0000000..a2e5326
+--- /dev/null
++++ b/app/src/test/java/com/stayalert/domain/SessionControllerTest.kt
+@@ -0,0 +1,129 @@
++package com.stayalert.domain
++
++import com.stayalert.data.AppInstalledChecker
++import com.stayalert.data.PermissionAuditor
++import com.stayalert.data.PermissionStatus
++import com.stayalert.data.SettingsRepository
++import kotlinx.coroutines.ExperimentalCoroutinesApi
++import kotlinx.coroutines.flow.Flow
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.test.StandardTestDispatcher
++import kotlinx.coroutines.test.TestScope
++import kotlinx.coroutines.test.UnconfinedTestDispatcher
++import kotlinx.coroutines.test.advanceUntilIdle
++import kotlinx.coroutines.test.runTest
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertNull
++import org.junit.Test
++
++@OptIn(ExperimentalCoroutinesApi::class)
++class SessionControllerTest {
++
++    private class FakePermissionAuditor(
++        private val overlay: Boolean,
++        private val notifications: Boolean
++    ) : PermissionAuditor {
++        override fun canDrawOverlays(): Boolean = overlay
++        override fun areNotificationsEnabled(): Boolean = notifications
++        override fun audit(): List<PermissionStatus> = emptyList()
++    }
++
++    private class FakeSettingsRepository(
++        private val noticeAcceptedValue: Boolean,
++        private val targetPackageValue: String = "com.microsoft.teams"
++    ) : SettingsRepository {
++        override val noticeAccepted: Flow<Boolean> = MutableStateFlow(noticeAcceptedValue)
++        override val targetPackage: Flow<String> = MutableStateFlow(targetPackageValue)
++        override val targetActivity: Flow<String> = MutableStateFlow("")
++        override suspend fun setNoticeAccepted(value: Boolean) {}
++        override suspend fun setTargetPackage(value: String) {}
++        override suspend fun setTargetActivity(value: String) {}
++    }
++
++    private class FakeAppInstalledChecker(private val installed: Boolean) : AppInstalledChecker {
++        override fun isInstalled(packageName: String): Boolean = installed
++    }
++
++    private class Harness(scope: TestScope) {
++        val commands = mutableListOf<SessionCommand>()
++        val controller = SessionController(
++            scope = scope.backgroundScope,
++            validator = SessionValidator(
++                FakePermissionAuditor(true, true),
++                FakeSettingsRepository(true),
++                FakeAppInstalledChecker(true)
++            ),
++            onCommand = { commands.add(it) }
++        )
++    }
++
++    @Test
++    fun `startSession transita a Lanzando y emite LaunchTarget`() = runTest(UnconfinedTestDispatcher()) {
++        val harness = Harness(this)
++        val failure = harness.controller.startSession()
++        assertNull(failure)
++        assertEquals(SessionState.Lanzando, harness.controller.state.value)
++        assertEquals(listOf(SessionCommand.LaunchTarget), harness.commands)
++    }
++
++    @Test
++    fun `startSession devuelve el motivo si la validacion falla`() = runTest(UnconfinedTestDispatcher()) {
++        val controller = SessionController(
++            scope = backgroundScope,
++            validator = SessionValidator(
++                FakePermissionAuditor(false, true),
++                FakeSettingsRepository(true),
++                FakeAppInstalledChecker(true)
++            ),
++            onCommand = {}
++        )
++        val failure = controller.startSession()
++        assertEquals(ValidationFailure.PERMISSION_OVERLAY, failure)
++        assertEquals(SessionState.Inactiva, controller.state.value)
++    }
++
++    @Test
++    fun `OverlayShown transita a Aislada y emite StartFgs y StartWatchdog`() = runTest(UnconfinedTestDispatcher()) {
++        val harness = Harness(this)
++        harness.controller.startSession()
++        harness.controller.emit(SessionEvent.OverlayShown)
++        advanceUntilIdle()
++        assertEquals(SessionState.Aislada, harness.controller.state.value)
++        assertEquals(
++            listOf(SessionCommand.LaunchTarget, SessionCommand.StartFgs, SessionCommand.StartWatchdog),
++            harness.commands
++        )
++    }
++
++    @Test
++    fun `PatternDetected en Aislada termina la sesion`() = runTest(UnconfinedTestDispatcher()) {
++        val harness = Harness(this)
++        harness.controller.startSession()
++        harness.controller.emit(SessionEvent.OverlayShown)
++        advanceUntilIdle()
++        harness.controller.emit(SessionEvent.PatternDetected)
++        advanceUntilIdle()
++        assertEquals(SessionState.Inactiva, harness.controller.state.value)
++        assertEquals(TerminationReason.Pattern, harness.controller.lastTerminationReason.value)
++    }
++
++    @Test
++    fun `eventos de terminacion en Inactiva son no-ops`() = runTest(UnconfinedTestDispatcher()) {
++        val harness = Harness(this)
++        harness.controller.emit(SessionEvent.PatternDetected)
++        harness.controller.emit(SessionEvent.ScreenOff)
++        advanceUntilIdle()
++        assertEquals(SessionState.Inactiva, harness.controller.state.value)
++        assertNull(harness.controller.lastTerminationReason.value)
++    }
++
++    @Test
++    fun `LaunchFailed en Lanzando aborta a Inactiva`() = runTest(UnconfinedTestDispatcher()) {
++        val harness = Harness(this)
++        harness.controller.startSession()
++        harness.controller.emit(SessionEvent.LaunchFailed("paquete no instalado"))
++        advanceUntilIdle()
++        assertEquals(SessionState.Inactiva, harness.controller.state.value)
++        assertEquals(TerminationReason.LaunchFailed, harness.controller.lastTerminationReason.value)
++    }
++}
+diff --git a/app/src/test/java/com/stayalert/domain/SessionValidatorTest.kt b/app/src/test/java/com/stayalert/domain/SessionValidatorTest.kt
+new file mode 100644
+index 0000000..367b351
+--- /dev/null
++++ b/app/src/test/java/com/stayalert/domain/SessionValidatorTest.kt
+@@ -0,0 +1,90 @@
++package com.stayalert.domain
++
++import com.stayalert.data.AppInstalledChecker
++import com.stayalert.data.PermissionAuditor
++import com.stayalert.data.PermissionStatus
++import com.stayalert.data.SettingsRepository
++import kotlinx.coroutines.flow.Flow
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.test.runTest
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertNull
++import org.junit.Test
++
++class SessionValidatorTest {
++
++    private class FakePermissionAuditor(
++        private val overlay: Boolean,
++        private val notifications: Boolean
++    ) : PermissionAuditor {
++        override fun canDrawOverlays(): Boolean = overlay
++        override fun areNotificationsEnabled(): Boolean = notifications
++        override fun audit(): List<PermissionStatus> = emptyList()
++    }
++
++    private class FakeSettingsRepository(
++        private val noticeAcceptedValue: Boolean,
++        private val targetPackageValue: String = "com.microsoft.teams"
++    ) : SettingsRepository {
++        override val noticeAccepted: Flow<Boolean> = MutableStateFlow(noticeAcceptedValue)
++        override val targetPackage: Flow<String> = MutableStateFlow(targetPackageValue)
++        override val targetActivity: Flow<String> = MutableStateFlow("")
++        override suspend fun setNoticeAccepted(value: Boolean) {}
++        override suspend fun setTargetPackage(value: String) {}
++        override suspend fun setTargetActivity(value: String) {}
++    }
++
++    private class FakeAppInstalledChecker(private val installed: Boolean) : AppInstalledChecker {
++        override fun isInstalled(packageName: String): Boolean = installed
++    }
++
++    @Test
++    fun `validate devuelve null cuando todo esta listo`() = runTest {
++        val validator = SessionValidator(
++            FakePermissionAuditor(true, true),
++            FakeSettingsRepository(true),
++            FakeAppInstalledChecker(true)
++        )
++        assertNull(validator.validate())
++    }
++
++    @Test
++    fun `validate devuelve PERMISSION_OVERLAY si falta el permiso de overlay`() = runTest {
++        val validator = SessionValidator(
++            FakePermissionAuditor(false, true),
++            FakeSettingsRepository(true),
++            FakeAppInstalledChecker(true)
++        )
++        assertEquals(ValidationFailure.PERMISSION_OVERLAY, validator.validate())
++    }
++
++    @Test
++    fun `validate devuelve PERMISSION_NOTIFICATIONS si faltan las notificaciones`() = runTest {
++        val validator = SessionValidator(
++            FakePermissionAuditor(true, false),
++            FakeSettingsRepository(true),
++            FakeAppInstalledChecker(true)
++        )
++        assertEquals(ValidationFailure.PERMISSION_NOTIFICATIONS, validator.validate())
++    }
++
++    @Test
++    fun `validate devuelve NOTICE_NOT_ACCEPTED si el aviso no fue aceptado`() = runTest {
++        val validator = SessionValidator(
++            FakePermissionAuditor(true, true),
++            FakeSettingsRepository(false),
++            FakeAppInstalledChecker(true)
++        )
++        assertEquals(ValidationFailure.NOTICE_NOT_ACCEPTED, validator.validate())
++    }
++
++    @Test
++    fun `validate devuelve TARGET_NOT_INSTALLED si la app objetivo no esta instalada`() = runTest {
++        val validator = SessionValidator(
++            FakePermissionAuditor(true, true),
++            FakeSettingsRepository(true),
++            FakeAppInstalledChecker(false)
++        )
++        assertEquals(ValidationFailure.TARGET_NOT_INSTALLED, validator.validate())
++    }
++}
+diff --git a/app/src/test/java/com/stayalert/ui/MainScreenTest.kt b/app/src/test/java/com/stayalert/ui/MainScreenTest.kt
+index 694fa13..63bcd22 100644
+--- a/app/src/test/java/com/stayalert/ui/MainScreenTest.kt
++++ b/app/src/test/java/com/stayalert/ui/MainScreenTest.kt
+@@ -8,6 +8,8 @@ import androidx.compose.ui.test.junit4.createComposeRule
+ import androidx.compose.ui.test.onNodeWithText
+ import androidx.compose.ui.test.performClick
+ import com.stayalert.data.SettingsRepository
++import com.stayalert.domain.SessionController
++import com.stayalert.domain.SessionValidator
+ import com.stayalert.ui.theme.StayAlertTheme
+ import com.stayalert.ui.viewmodel.MainViewModel
+ import kotlinx.coroutines.Dispatchers
+@@ -54,6 +56,25 @@ class MainScreenTest {
+         }
+     }
+ 
++    private fun createViewModel(repository: SettingsRepository): MainViewModel {
++        val controller = SessionController(
++            scope = kotlinx.coroutines.test.TestScope(),
++            validator = SessionValidator(
++                permissionAuditor = object : com.stayalert.data.PermissionAuditor {
++                    override fun canDrawOverlays(): Boolean = true
++                    override fun areNotificationsEnabled(): Boolean = true
++                    override fun audit(): List<com.stayalert.data.PermissionStatus> = emptyList()
++                },
++                settingsRepository = repository,
++                appInstalledChecker = object : com.stayalert.data.AppInstalledChecker {
++                    override fun isInstalled(packageName: String): Boolean = true
++                }
++            ),
++            onCommand = {}
++        )
++        return MainViewModel(repository, controller)
++    }
++
+     @SuppressLint("ViewModelConstructorInComposable")
+     @Test
+     fun `modal visible cuando aviso no aceptado y boton deshabilitado`() {
+@@ -61,7 +82,7 @@ class MainScreenTest {
+         try {
+             composeRule.setContent {
+                 StayAlertTheme {
+-                    MainScreen(viewModel = MainViewModel(FakeSettingsRepository(false)), onOpenSettings = {})
++                    MainScreen(viewModel = createViewModel(FakeSettingsRepository(false)), onOpenSettings = {})
+                 }
+             }
+ 
+@@ -80,7 +101,7 @@ class MainScreenTest {
+             val fakeRepository = FakeSettingsRepository(false)
+             composeRule.setContent {
+                 StayAlertTheme {
+-                    MainScreen(viewModel = MainViewModel(fakeRepository), onOpenSettings = {})
++                    MainScreen(viewModel = createViewModel(fakeRepository), onOpenSettings = {})
+                 }
+             }
+ 
+diff --git a/app/src/test/java/com/stayalert/ui/MainViewModelTest.kt b/app/src/test/java/com/stayalert/ui/MainViewModelTest.kt
+index 4dca79f..a3158dd 100644
+--- a/app/src/test/java/com/stayalert/ui/MainViewModelTest.kt
++++ b/app/src/test/java/com/stayalert/ui/MainViewModelTest.kt
+@@ -1,6 +1,8 @@
+ package com.stayalert.ui.viewmodel
+ 
+ import com.stayalert.data.SettingsRepository
++import com.stayalert.domain.SessionController
++import com.stayalert.domain.SessionValidator
+ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.ExperimentalCoroutinesApi
+ import kotlinx.coroutines.flow.MutableStateFlow
+@@ -37,11 +39,30 @@ class MainViewModelTest {
+         }
+     }
+ 
++    private fun createViewModel(
++        repository: SettingsRepository = FakeSettingsRepository(false),
++        controller: SessionController = SessionController(
++            scope = kotlinx.coroutines.test.TestScope(),
++            validator = SessionValidator(
++                permissionAuditor = object : com.stayalert.data.PermissionAuditor {
++                    override fun canDrawOverlays(): Boolean = true
++                    override fun areNotificationsEnabled(): Boolean = true
++                    override fun audit(): List<com.stayalert.data.PermissionStatus> = emptyList()
++                },
++                settingsRepository = repository,
++                appInstalledChecker = object : com.stayalert.data.AppInstalledChecker {
++                    override fun isInstalled(packageName: String): Boolean = true
++                }
++            ),
++            onCommand = {}
++        )
++    ): MainViewModel = MainViewModel(repository, controller)
++
+     @Test
+     fun `noticeAccepted expone el valor inicial del repository`() = runTest {
+         Dispatchers.setMain(UnconfinedTestDispatcher())
+         try {
+-            val viewModel = MainViewModel(FakeSettingsRepository(false))
++            val viewModel = createViewModel()
+             assertFalse(viewModel.noticeAccepted.value)
+         } finally {
+             Dispatchers.resetMain()
+@@ -53,7 +74,7 @@ class MainViewModelTest {
+         Dispatchers.setMain(UnconfinedTestDispatcher())
+         try {
+             val fakeRepository = FakeSettingsRepository(false)
+-            val viewModel = MainViewModel(fakeRepository)
++            val viewModel = createViewModel(repository = fakeRepository)
+             viewModel.acceptNotice()
+             assertTrue(viewModel.noticeAccepted.value)
+         } finally {
