@@ -96,7 +96,7 @@ class SystemWatchdogTest {
     }
 
     @Test
-    fun `app objetivo fuera de primer plano emite TargetLeftForeground`() = runTest(UnconfinedTestDispatcher()) {
+    fun `con overlay visible no se emite TargetLeftForeground aunque la app este en background`() = runTest(UnconfinedTestDispatcher()) {
         val events = mutableListOf<SessionEvent>()
         val watchdog = createWatchdog(backgroundScope, events, monitorStatus = ForegroundStatus.NOT_FOREGROUND)
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -107,7 +107,10 @@ class SystemWatchdogTest {
         advanceTimeBy(SessionConstants.WATCHDOG_POLL_MS + 100)
         watchdog.stop()
 
-        assertTrue(events.contains(SessionEvent.TargetLeftForeground))
+        // Limitación documentada (AD-5): con el overlay visible, la app objetivo está
+        // cubierta por diseño y el sistema la reporta como stopped; no se emite
+        // TargetLeftForeground para evitar falsas terminaciones.
+        assertTrue(events.none { it is SessionEvent.TargetLeftForeground })
     }
 
     @Test

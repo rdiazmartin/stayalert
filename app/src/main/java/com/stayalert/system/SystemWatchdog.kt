@@ -63,11 +63,13 @@ class SystemWatchdog(
             return
         }
 
-        val status = foregroundMonitor.status(targetPackage())
-        if (status == ForegroundStatus.NOT_FOREGROUND) {
-            onEvent(SessionEvent.TargetLeftForeground)
-            return
-        }
+        // Cuando el overlay está visible, la app objetivo está cubierta por diseño
+        // (el overlay es la ventana topmost). El sistema puede reportar la app como
+        // stopped/paused mientras está cubierta; comprobar foreground aquí causaría
+        // falsas terminaciones. La detección de salida de primer plano solo aplica
+        // cuando el overlay NO está visible (cubierto por OverlayMissing arriba).
+        // Limitación documentada (AD-5): con el overlay visible no se detecta
+        // TargetLeftForeground ni TargetCrashed.
 
         // Nota: si la anomalía persiste, el evento se re-emite en cada poll (2 s).
         // SessionController es idempotente (AD-9): el primer evento termina la sesión

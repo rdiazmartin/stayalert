@@ -45,3 +45,8 @@
 
 - `SystemWatchdog` no distingue `TargetCrashed` de `TargetLeftForeground` [`app/src/main/java/com/stayalert/system/SystemWatchdog.kt:127-131`] — deferred; limitación de `UsageStatsManager`; el motivo de la notificación será "la app objetivo salió de primer plano" en ambos casos.
 - `SystemWatchdog` no maneja `BatteryWarning` repetido [`app/src/main/java/com/stayalert/system/SystemWatchdog.kt:137-138`] — deferred; requiere deduplicación (flag) cuando se implemente el aviso de batería (FR-16).
+
+## Deferred from: code review of 2-6-mock-de-teams-y-validacion-e2e.md (2026-08-09)
+
+- `SessionE2ETest` no verifica el proxy SM-1a (mock resumed ≥ 8 h) [`app/src/androidTest/java/com/stayalert/SessionE2ETest.kt`] — deferred; validación manual en emulador; documentar el procedimiento en el README.
+- `SessionE2ETest` no verifica "0 toques recibidos por el mock" (SM-2) [`app/src/androidTest/java/com/stayalert/SessionE2ETest.kt`] — deferred; requiere lectura de logcat en el E2E completo.

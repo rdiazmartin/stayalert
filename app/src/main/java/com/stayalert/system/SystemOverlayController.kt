@@ -40,6 +40,7 @@ class SystemOverlayController(
                 val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
                 val view = View(context).apply {
                     setBackgroundColor(Color.BLACK)
+                    isClickable = true
                     setOnTouchListener { _, event ->
                         if (event.action == MotionEvent.ACTION_DOWN) {
                             val detected = patternDetector.onTouch(

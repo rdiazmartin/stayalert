@@ -21,3 +21,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "stayAlert"
 include(":app")
+include(":mock-teams")
