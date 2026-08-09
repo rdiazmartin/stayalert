@@ -74,6 +74,10 @@ class SessionCommandHandlerTest {
             override fun showSessionNotification() {}
             override fun showSessionEnded(reason: com.stayalert.domain.TerminationReason) {}
         },
+        watchdog = object : com.stayalert.domain.Watchdog {
+            override fun start() {}
+            override fun stop() {}
+        },
         onEvent = { events.add(it) }
     )
 

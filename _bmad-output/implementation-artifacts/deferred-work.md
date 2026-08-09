@@ -40,3 +40,8 @@
 
 - `SystemNotifier` no maneja `POST_NOTIFICATIONS` (API 33+) [`app/src/main/java/com/stayalert/data/SystemNotifier.kt:94-95`] — deferred; la validación FR-5 ya cubre `areNotificationsEnabled()`.
 - `SystemNotifier` no expone `buildSessionNotification()` [`app/src/main/java/com/stayalert/data/SystemNotifier.kt`] — deferred; se resuelve con el fix de notificación única.
+
+## Deferred from: code review of 2-5-watchdog-de-sesion.md (2026-08-09)
+
+- `SystemWatchdog` no distingue `TargetCrashed` de `TargetLeftForeground` [`app/src/main/java/com/stayalert/system/SystemWatchdog.kt:127-131`] — deferred; limitación de `UsageStatsManager`; el motivo de la notificación será "la app objetivo salió de primer plano" en ambos casos.
+- `SystemWatchdog` no maneja `BatteryWarning` repetido [`app/src/main/java/com/stayalert/system/SystemWatchdog.kt:137-138`] — deferred; requiere deduplicación (flag) cuando se implemente el aviso de batería (FR-16).

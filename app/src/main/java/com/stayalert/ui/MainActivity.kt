@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.flow.first
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -50,6 +51,7 @@ import com.stayalert.system.IntentLauncher
 import com.stayalert.system.SessionCommandHandler
 import com.stayalert.system.StopReceiver
 import com.stayalert.system.SystemOverlayController
+import com.stayalert.system.SystemWatchdog
 import com.stayalert.system.UsageStatsForegroundMonitor
 import com.stayalert.ui.components.ResponsibleUseNotice
 import com.stayalert.ui.settings.SettingsScreen
@@ -115,8 +117,20 @@ class MainActivity : ComponentActivity() {
             foregroundMonitor = UsageStatsForegroundMonitor(applicationContext),
             overlayController = overlayController,
             notifier = notifier,
+            watchdog = watchdog,
             onEvent = { event -> sessionController.emit(event) }
         ).also { sessionCommandHandler = it }
+    }
+
+    private val watchdog by lazy {
+        SystemWatchdog(
+            context = applicationContext,
+            scope = lifecycleScope,
+            foregroundMonitor = UsageStatsForegroundMonitor(applicationContext),
+            overlayController = overlayController,
+            targetPackage = { settingsRepository.targetPackage.first() },
+            onEvent = { event -> sessionController.emit(event) }
+        )
     }
 
     private val notifier by lazy {

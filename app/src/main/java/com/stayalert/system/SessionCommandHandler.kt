@@ -13,6 +13,7 @@ import com.stayalert.domain.SessionConstants
 import com.stayalert.domain.SessionEvent
 import com.stayalert.domain.TargetApp
 import com.stayalert.domain.TargetAppLauncher
+import com.stayalert.domain.Watchdog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -26,6 +27,7 @@ class SessionCommandHandler(
     private val foregroundMonitor: ForegroundMonitor,
     private val overlayController: OverlayController,
     private val notifier: Notifier,
+    private val watchdog: Watchdog,
     private val onEvent: (SessionEvent) -> Unit
 ) {
 
@@ -36,10 +38,8 @@ class SessionCommandHandler(
             SessionCommand.HideOverlay -> overlayController.hide()
             SessionCommand.StartFgs -> startFgs()
             SessionCommand.StopFgs -> stopFgs()
-            SessionCommand.StartWatchdog,
-            SessionCommand.StopWatchdog -> {
-                // no-op: watchdog en story 2.5
-            }
+            SessionCommand.StartWatchdog -> watchdog.start()
+            SessionCommand.StopWatchdog -> watchdog.stop()
         }
     }
 
