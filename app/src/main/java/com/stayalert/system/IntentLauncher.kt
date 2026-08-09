@@ -9,17 +9,22 @@ import com.stayalert.domain.TargetAppLauncher
 class IntentLauncher(private val context: Context) : TargetAppLauncher {
 
     override suspend fun launch(target: TargetApp): Result<Unit> {
-        val intent = Intent(Intent.ACTION_MAIN)
+        val explicit = Intent(Intent.ACTION_MAIN)
             .setClassName(target.packageName, target.activityName)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
         return try {
-            val resolveInfo = context.packageManager.resolveActivity(intent, 0)
-            if (resolveInfo == null) {
-                Result.failure(LaunchError.ActivityNotFound)
-            } else {
-                context.startActivity(intent)
+            if (context.packageManager.resolveActivity(explicit, 0) != null) {
+                context.startActivity(explicit)
+                return Result.success(Unit)
+            }
+            val launchIntent = context.packageManager.getLaunchIntentForPackage(target.packageName)
+            if (launchIntent != null) {
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(launchIntent)
                 Result.success(Unit)
+            } else {
+                Result.failure(LaunchError.ActivityNotFound)
             }
         } catch (e: Exception) {
             Result.failure(LaunchError.SystemFailure(e))

@@ -30,29 +30,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.flow.first
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.stayalert.data.DataStoreSettingsRepository
-import com.stayalert.data.SystemAppInstalledChecker
-import com.stayalert.data.SystemBatteryOptimizationChecker
-import com.stayalert.data.SystemNotifier
-import com.stayalert.data.SystemPermissionAuditor
-import com.stayalert.domain.PatternDetector
+import com.stayalert.AppContainer
+import com.stayalert.StayAlertApplication
 import com.stayalert.domain.SessionController
 import com.stayalert.domain.SessionEvent
 import com.stayalert.domain.SessionState
-import com.stayalert.domain.SessionValidator
-import com.stayalert.domain.SystemClock
 import com.stayalert.domain.TerminationReason
 import com.stayalert.domain.ValidationFailure
-import com.stayalert.system.IntentLauncher
-import com.stayalert.system.SessionCommandHandler
 import com.stayalert.system.StopReceiver
-import com.stayalert.system.SystemOverlayController
-import com.stayalert.system.SystemWatchdog
-import com.stayalert.system.UsageStatsForegroundMonitor
 import com.stayalert.ui.components.ResponsibleUseNotice
 import com.stayalert.ui.settings.SettingsScreen
 import com.stayalert.ui.settings.SettingsViewModel
@@ -66,76 +53,12 @@ import com.stayalert.R
 
 class MainActivity : ComponentActivity() {
 
-    private val settingsRepository by lazy {
-        DataStoreSettingsRepository(applicationContext)
+    private val container: AppContainer by lazy {
+        (application as StayAlertApplication).container
     }
 
-    private val permissionAuditor by lazy {
-        SystemPermissionAuditor(applicationContext)
-    }
-
-    private val appInstalledChecker by lazy {
-        SystemAppInstalledChecker(applicationContext)
-    }
-
-    private val batteryOptimizationChecker by lazy {
-        SystemBatteryOptimizationChecker(applicationContext)
-    }
-
-    private lateinit var sessionCommandHandler: SessionCommandHandler
-
-    private val sessionController by lazy {
-        SessionController(
-            scope = lifecycleScope,
-            validator = SessionValidator(
-                permissionAuditor,
-                settingsRepository,
-                appInstalledChecker
-            ),
-            onCommand = { command ->
-                sessionCommandHandler.handle(command)
-            }
-        )
-    }
-
-    private val overlayController by lazy {
-        SystemOverlayController(
-            context = applicationContext,
-            scope = lifecycleScope,
-            clock = SystemClock(),
-            patternDetector = PatternDetector(clock = SystemClock()),
-            onEvent = { event -> sessionController.emit(event) }
-        )
-    }
-
-    private val commandHandler by lazy {
-        SessionCommandHandler(
-            context = applicationContext,
-            scope = lifecycleScope,
-            settingsRepository = settingsRepository,
-            targetAppLauncher = IntentLauncher(applicationContext),
-            foregroundMonitor = UsageStatsForegroundMonitor(applicationContext),
-            overlayController = overlayController,
-            notifier = notifier,
-            watchdog = watchdog,
-            onEvent = { event -> sessionController.emit(event) }
-        ).also { sessionCommandHandler = it }
-    }
-
-    private val watchdog by lazy {
-        SystemWatchdog(
-            context = applicationContext,
-            scope = lifecycleScope,
-            foregroundMonitor = UsageStatsForegroundMonitor(applicationContext),
-            overlayController = overlayController,
-            targetPackage = { settingsRepository.targetPackage.first() },
-            onEvent = { event -> sessionController.emit(event) }
-        )
-    }
-
-    private val notifier by lazy {
-        SystemNotifier(applicationContext)
-    }
+    private val sessionController: SessionController
+        get() = container.sessionController
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -147,19 +70,21 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        commandHandler
-        notifier.createChannels()
+        container.notifier.createChannels()
+        if (savedInstanceState == null && sessionController.state.value !is SessionState.Inactiva) {
+            sessionController.emit(SessionEvent.StopRequested)
+        }
         setContent {
             StayAlertTheme {
                 val mainViewModel: MainViewModel = viewModel(
-                    factory = MainViewModel.Factory(settingsRepository, sessionController)
+                    factory = MainViewModel.Factory(container.settingsRepository, sessionController)
                 )
                 val settingsViewModel: SettingsViewModel = viewModel(
                     factory = SettingsViewModel.Factory(
-                        permissionAuditor,
-                        settingsRepository,
-                        appInstalledChecker,
-                        batteryOptimizationChecker
+                        container.permissionAuditor,
+                        container.settingsRepository,
+                        container.appInstalledChecker,
+                        container.batteryOptimizationChecker
                     )
                 )
                 var showSettings by remember { mutableStateOf(false) }

@@ -6,8 +6,11 @@ import android.graphics.PixelFormat
 import android.os.Build
 import android.provider.Settings
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
+import android.view.WindowInsets
+import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.view.WindowManager.LayoutParams
 import com.stayalert.domain.Clock
@@ -41,6 +44,9 @@ class SystemOverlayController(
                 val view = View(context).apply {
                     setBackgroundColor(Color.BLACK)
                     isClickable = true
+                    setOnKeyListener { _, keyCode, _ ->
+                        if (keyCode == KeyEvent.KEYCODE_BACK) true else false
+                    }
                     setOnTouchListener { _, event ->
                         if (event.action == MotionEvent.ACTION_DOWN) {
                             val detected = patternDetector.onTouch(
@@ -55,6 +61,17 @@ class SystemOverlayController(
                         }
                         true
                     }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        setOnApplyWindowInsetsListener { v, insets ->
+                            v.windowInsetsController?.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
+                            insets
+                        }
+                    } else {
+                        @Suppress("DEPRECATION")
+                        systemUiVisibility = View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+                            View.SYSTEM_UI_FLAG_FULLSCREEN
+                    }
                 }
                 val params = LayoutParams(
                     LayoutParams.MATCH_PARENT,
@@ -65,15 +82,22 @@ class SystemOverlayController(
                         @Suppress("DEPRECATION")
                         LayoutParams.TYPE_PHONE
                     },
-                    LayoutParams.FLAG_NOT_FOCUSABLE or
-                        LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                        LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                        LayoutParams.FLAG_FULLSCREEN or
                         LayoutParams.FLAG_KEEP_SCREEN_ON or
                         LayoutParams.FLAG_SECURE,
                     PixelFormat.OPAQUE
                 ).apply {
                     gravity = Gravity.TOP or Gravity.START
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        layoutInDisplayCutoutMode = LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                    }
                 }
                 wm.addView(view, params)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    view.windowInsetsController?.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
+                }
                 overlayView = view
                 windowManager = wm
                 val deployTime = clock.now() - start

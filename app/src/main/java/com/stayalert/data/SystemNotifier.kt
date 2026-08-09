@@ -55,7 +55,7 @@ class SystemNotifier(private val context: Context) : Notifier {
         return Notification.Builder(context, CHANNEL_SESSION)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("Sesión activa")
-            .setContentText("Sesión activa — toca para detener")
+            .setContentText("Sesión activa — toca para detener. Capturas bloqueadas.")
             .setOngoing(true)
             .addAction(
                 Notification.Action.Builder(
