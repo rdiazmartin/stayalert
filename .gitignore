@@ -7,3 +7,6 @@ local.properties
 .DS_Store
 .kotlin/
 *.hprof
+
+# Keystore de release (NO versionar)
+app/keystore/

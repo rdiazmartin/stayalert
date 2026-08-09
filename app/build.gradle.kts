@@ -17,6 +17,15 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("keystore/stayalert-release.jks")
+            storePassword = providers.gradleProperty("STAYALERT_STORE_PASSWORD").orElse("stayalert2026").get()
+            keyAlias = "stayalert"
+            keyPassword = providers.gradleProperty("STAYALERT_KEY_PASSWORD").orElse("stayalert2026").get()
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -24,6 +33,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
